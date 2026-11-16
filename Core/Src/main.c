@@ -35,6 +35,7 @@
 /* USER CODE BEGIN PD */
 #define LPS22HB_ADDR  (0x5D << 1)
 #define HTS221_ADDR   (0x5F << 1)
+#define HM3301_ADDR  (0x40 << 1)
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -75,7 +76,9 @@ static uint8_t hts_ok = 0;
 volatile float humidity_rh = 0.0f;
 volatile float temp_hts_c  = 0.0f;
 
-
+static uint8_t hm_ok = 0;
+volatile uint16_t pm1_0 = 0, pm2_5 = 0, pm10 = 0;
+volatile int aqi_value = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -174,6 +177,47 @@ static float mic_measure_db(void)
   /* MP34DT01: 94 dB SPL = -26 dBFS, Vollaussteuerung (Sinus-RMS) = 23170 bei 16 Bit */
   return 120.0f + 20.0f * log10f(rms / 23170.0f);
 }
+
+
+//-------------------------------Air-Quality--------------------------------//
+/* PM2.5 (ug/m3) -> US AQI, linear interpolation between EPA breakpoints (2024 table) */
+static int pm25_to_aqi(float c)
+{
+  static const float bp[]  = {0.0f, 9.0f, 35.4f, 55.4f, 125.4f, 225.4f, 325.4f};
+  static const int   idx[] = {0, 50, 100, 150, 200, 300, 500};
+
+  if (c >= bp[6]) return 500;
+  for (int i = 0; i < 6; i++)
+  {
+    if (c <= bp[i + 1])
+      return (int)(idx[i] + (c - bp[i]) * (idx[i + 1] - idx[i]) / (bp[i + 1] - bp[i]) + 0.5f);
+  }
+  return 500;
+}
+
+static HAL_StatusTypeDef hm3301_init(void)
+{
+  uint8_t cmd = 0x88;   /* select I2C mode */
+  return HAL_I2C_Master_Transmit(&hi2c1, HM3301_ADDR, &cmd, 1, 100);
+}
+
+static HAL_StatusTypeDef hm3301_read(void)
+{
+  uint8_t d[29];
+  if (HAL_I2C_Master_Receive(&hi2c1, HM3301_ADDR, d, 29, 200) != HAL_OK)
+    return HAL_ERROR;
+
+  uint8_t sum = 0;
+  for (int i = 0; i < 28; i++) sum += d[i];
+  if (sum != d[28]) return HAL_ERROR;          /* checksum */
+
+  pm1_0 = (uint16_t)((d[10] << 8) | d[11]);    /* atmospheric values */
+  pm2_5 = (uint16_t)((d[12] << 8) | d[13]);
+  pm10  = (uint16_t)((d[14] << 8) | d[15]);
+  aqi_value = pm25_to_aqi((float)pm2_5);
+  return HAL_OK;
+}
+
 /* USER CODE END 0 */
 
 /**
@@ -251,6 +295,10 @@ int main(void)
   if (HAL_DFSDM_FilterRegularStart(&hdfsdm1_filter0) != HAL_OK)
       printf("Microphone start failed\r\n");
 
+ //-----------------Air-Quality----------------------------------------------//
+  hm_ok = (hm3301_init() == HAL_OK);
+  if (!hm_ok) printf("HM3301 init failed\r\n");
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -293,6 +341,17 @@ int main(void)
 
     	  sound_db = mic_measure_db();
     	  printf("Sound: %d dB (approx.)\r\n", (int)sound_db);
+
+
+    	  if (hm_ok && hm3301_read() == HAL_OK)
+    	  {
+    	      printf("PM1.0 = %u, PM2.5 = %u, PM10 = %u ug/m3, AQI = %d\r\n",
+    	             (unsigned)pm1_0, (unsigned)pm2_5, (unsigned)pm10, aqi_value);
+    	  }
+    	  else if (hm_ok)
+    	  {
+    	      printf("HM3301 read failed\r\n");
+    	  }
 
     	  HAL_Delay(1000);
       }
