@@ -23,6 +23,7 @@
 /* USER CODE BEGIN Includes */
 #include <stdio.h>
 #include <stdlib.h>
+#include <math.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -43,6 +44,9 @@
 
 /* Private variables ---------------------------------------------------------*/
 ADC_HandleTypeDef hadc1;
+
+DFSDM_Filter_HandleTypeDef hdfsdm1_filter0;
+DFSDM_Channel_HandleTypeDef hdfsdm1_channel2;
 
 I2C_HandleTypeDef hi2c1;
 I2C_HandleTypeDef hi2c2;
@@ -83,6 +87,7 @@ static void MX_I2C2_Init(void);
 static void MX_SPI1_Init(void);
 static void MX_TIM6_Init(void);
 static void MX_USART1_UART_Init(void);
+static void MX_DFSDM1_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -139,6 +144,36 @@ static HAL_StatusTypeDef hts221_read(void)
   temp_hts_c  = t;
   return HAL_OK;
 }
+
+//----------------------------------microphone----------------------------------------------//
+volatile float sound_db = 0.0f;
+
+static float mic_measure_db(void)
+{
+  const int N = 512;
+  int64_t sum = 0, sumsq = 0;
+  int count = 0;
+
+  for (int i = 0; i < N; i++)
+  {
+    if (HAL_DFSDM_FilterPollForRegConversion(&hdfsdm1_filter0, 10) != HAL_OK)
+      continue;
+    uint32_t ch;
+    int32_t s = HAL_DFSDM_FilterGetRegularValue(&hdfsdm1_filter0, &ch);
+    sum   += s;
+    sumsq += (int64_t)s * s;
+    count++;
+  }
+  if (count < 16) return -1.0f;
+
+  double mean = (double)sum / count;
+  double var  = (double)sumsq / count - mean * mean;   /* entfernt den DC-Anteil */
+  if (var < 1.0) var = 1.0;
+  float rms = sqrtf((float)var);
+
+  /* MP34DT01: 94 dB SPL = -26 dBFS, Vollaussteuerung (Sinus-RMS) = 23170 bei 16 Bit */
+  return 120.0f + 20.0f * log10f(rms / 23170.0f);
+}
 /* USER CODE END 0 */
 
 /**
@@ -176,6 +211,7 @@ int main(void)
   MX_SPI1_Init();
   MX_TIM6_Init();
   MX_USART1_UART_Init();
+  MX_DFSDM1_Init();
   /* USER CODE BEGIN 2 */
   
   //-------------------------I2C Setup ------------------------------------//
@@ -197,7 +233,7 @@ int main(void)
       }
   }
 
-  //------------------------------Luftdruck Sensor --------------------------------//
+  //------------------------------Luftdruck Sensor -----------------------//
   HAL_Delay(100);
 
   uint8_t who = 0;
@@ -211,6 +247,9 @@ int main(void)
 
   hts_ok = (hts221_init() == HAL_OK);
   if (!hts_ok) printf("HTS221 init failed\r\n");
+
+  if (HAL_DFSDM_FilterRegularStart(&hdfsdm1_filter0) != HAL_OK)
+      printf("Microphone start failed\r\n");
 
   /* USER CODE END 2 */
 
@@ -251,7 +290,11 @@ int main(void)
     	  } else if (hts_ok) {
     	      printf("HTS221 read failed\r\n");
     	  }
-    	  HAL_Delay(5000);
+
+    	  sound_db = mic_measure_db();
+    	  printf("Sound: %d dB (approx.)\r\n", (int)sound_db);
+
+    	  HAL_Delay(1000);
       }
   /* USER CODE END 3 */
 }
@@ -364,6 +407,59 @@ static void MX_ADC1_Init(void)
   /* USER CODE BEGIN ADC1_Init 2 */
 
   /* USER CODE END ADC1_Init 2 */
+
+}
+
+/**
+  * @brief DFSDM1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_DFSDM1_Init(void)
+{
+
+  /* USER CODE BEGIN DFSDM1_Init 0 */
+
+  /* USER CODE END DFSDM1_Init 0 */
+
+  /* USER CODE BEGIN DFSDM1_Init 1 */
+
+  /* USER CODE END DFSDM1_Init 1 */
+  hdfsdm1_filter0.Instance = DFSDM1_Filter0;
+  hdfsdm1_filter0.Init.RegularParam.Trigger = DFSDM_FILTER_SW_TRIGGER;
+  hdfsdm1_filter0.Init.RegularParam.FastMode = DISABLE;
+  hdfsdm1_filter0.Init.RegularParam.DmaMode = DISABLE;
+  hdfsdm1_filter0.Init.FilterParam.SincOrder = DFSDM_FILTER_SINC3_ORDER;
+  hdfsdm1_filter0.Init.FilterParam.Oversampling = 256;
+  hdfsdm1_filter0.Init.FilterParam.IntOversampling = 1;
+  if (HAL_DFSDM_FilterInit(&hdfsdm1_filter0) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  hdfsdm1_channel2.Instance = DFSDM1_Channel2;
+  hdfsdm1_channel2.Init.OutputClock.Activation = ENABLE;
+  hdfsdm1_channel2.Init.OutputClock.Selection = DFSDM_CHANNEL_OUTPUT_CLOCK_SYSTEM;
+  hdfsdm1_channel2.Init.OutputClock.Divider = 2;
+  hdfsdm1_channel2.Init.Input.Multiplexer = DFSDM_CHANNEL_EXTERNAL_INPUTS;
+  hdfsdm1_channel2.Init.Input.DataPacking = DFSDM_CHANNEL_STANDARD_MODE;
+  hdfsdm1_channel2.Init.Input.Pins = DFSDM_CHANNEL_SAME_CHANNEL_PINS;
+  hdfsdm1_channel2.Init.SerialInterface.Type = DFSDM_CHANNEL_SPI_RISING;
+  hdfsdm1_channel2.Init.SerialInterface.SpiClock = DFSDM_CHANNEL_SPI_CLOCK_INTERNAL;
+  hdfsdm1_channel2.Init.Awd.FilterOrder = DFSDM_CHANNEL_FASTSINC_ORDER;
+  hdfsdm1_channel2.Init.Awd.Oversampling = 1;
+  hdfsdm1_channel2.Init.Offset = 0;
+  hdfsdm1_channel2.Init.RightBitShift = 9;
+  if (HAL_DFSDM_ChannelInit(&hdfsdm1_channel2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_DFSDM_FilterConfigRegChannel(&hdfsdm1_filter0, DFSDM_CHANNEL_2, DFSDM_CONTINUOUS_CONV_ON) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN DFSDM1_Init 2 */
+
+  /* USER CODE END DFSDM1_Init 2 */
 
 }
 
