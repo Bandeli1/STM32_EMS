@@ -21,7 +21,8 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include <stdio.h>
+#include <stdlib.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -31,7 +32,8 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
+#define LPS22HB_ADDR  (0x5D << 1)
+#define HTS221_ADDR   (0x5F << 1)
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -52,6 +54,23 @@ TIM_HandleTypeDef htim6;
 UART_HandleTypeDef huart1;
 
 /* USER CODE BEGIN PV */
+volatile float pressure_hpa = 0.0f;
+volatile float temperature_c = 0.0f;
+volatile uint8_t found_address = 0;
+volatile HAL_StatusTypeDef test_status = HAL_ERROR;
+
+typedef struct {
+  float   h0_rh, h1_rh;
+  int16_t h0_out, h1_out;
+  float   t0_degc, t1_degc;
+  int16_t t0_out, t1_out;
+} hts221_cal_t;
+
+static hts221_cal_t hts_cal;
+static uint8_t hts_ok = 0;
+volatile float humidity_rh = 0.0f;
+volatile float temp_hts_c  = 0.0f;
+
 
 /* USER CODE END PV */
 
@@ -70,7 +89,56 @@ static void MX_USART1_UART_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+static HAL_StatusTypeDef hts221_init(void)
+{
+  uint8_t who = 0;
+  if (HAL_I2C_Mem_Read(&hi2c2, HTS221_ADDR, 0x0F, I2C_MEMADD_SIZE_8BIT, &who, 1, 100) != HAL_OK)
+    return HAL_ERROR;
+  printf("HTS221 WHO_AM_I = 0x%02X (expect 0xBC)\r\n", who);
+  if (who != 0xBC) return HAL_ERROR;
 
+  uint8_t c[16];
+  if (HAL_I2C_Mem_Read(&hi2c2, HTS221_ADDR, 0x30 | 0x80, I2C_MEMADD_SIZE_8BIT, c, 16, 100) != HAL_OK)
+    return HAL_ERROR;
+
+  hts_cal.h0_rh = c[0] / 2.0f;
+  hts_cal.h1_rh = c[1] / 2.0f;
+
+  uint16_t t0_x8 = ((uint16_t)(c[5] & 0x03) << 8) | c[2];
+  uint16_t t1_x8 = ((uint16_t)(c[5] & 0x0C) << 6) | c[3];
+  hts_cal.t0_degc = t0_x8 / 8.0f;
+  hts_cal.t1_degc = t1_x8 / 8.0f;
+
+  hts_cal.h0_out = (int16_t)((c[7]  << 8) | c[6]);
+  hts_cal.h1_out = (int16_t)((c[11] << 8) | c[10]);
+  hts_cal.t0_out = (int16_t)((c[13] << 8) | c[12]);
+  hts_cal.t1_out = (int16_t)((c[15] << 8) | c[14]);
+
+  uint8_t ctrl1 = 0x85;
+  return HAL_I2C_Mem_Write(&hi2c2, HTS221_ADDR, 0x20, I2C_MEMADD_SIZE_8BIT, &ctrl1, 1, 100);
+}
+
+static HAL_StatusTypeDef hts221_read(void)
+{
+  uint8_t d[4];
+  if (HAL_I2C_Mem_Read(&hi2c2, HTS221_ADDR, 0x28 | 0x80, I2C_MEMADD_SIZE_8BIT, d, 4, 100) != HAL_OK)
+    return HAL_ERROR;
+
+  int16_t h_raw = (int16_t)((d[1] << 8) | d[0]);
+  int16_t t_raw = (int16_t)((d[3] << 8) | d[2]);
+
+  float h = hts_cal.h0_rh + (float)(h_raw - hts_cal.h0_out) *
+            (hts_cal.h1_rh - hts_cal.h0_rh) / (float)(hts_cal.h1_out - hts_cal.h0_out);
+  if (h < 0.0f)   h = 0.0f;
+  if (h > 100.0f) h = 100.0f;
+
+  float t = hts_cal.t0_degc + (float)(t_raw - hts_cal.t0_out) *
+            (hts_cal.t1_degc - hts_cal.t0_degc) / (float)(hts_cal.t1_out - hts_cal.t0_out);
+
+  humidity_rh = h;
+  temp_hts_c  = t;
+  return HAL_OK;
+}
 /* USER CODE END 0 */
 
 /**
@@ -109,17 +177,82 @@ int main(void)
   MX_TIM6_Init();
   MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
+  
+  //-------------------------I2C Setup ------------------------------------//
+
+  HAL_Delay(500);
+  test_status = HAL_I2C_IsDeviceReady(&hi2c2, (0x5D << 1), 3, 100);
+
+  printf("Scanning I2C1 (External/Grove)...\r\n");
+  for (uint16_t i = 1; i < 128; i++) {
+      if (HAL_I2C_IsDeviceReady(&hi2c1, (i << 1), 1, 10) == HAL_OK) {
+          printf("Found device on I2C1 at address: 0x%02X\r\n", i);
+      }
+  }
+
+  printf("Scanning I2C2 (Internal)...\r\n");
+  for (uint16_t i = 1; i < 128; i++) {
+      if (HAL_I2C_IsDeviceReady(&hi2c2, (i << 1), 1, 10) == HAL_OK) {
+          printf("Found device on I2C2 at address: 0x%02X\r\n", i);
+      }
+  }
+
+  //------------------------------Luftdruck Sensor --------------------------------//
+  HAL_Delay(100);
+
+  uint8_t who = 0;
+  HAL_StatusTypeDef st = HAL_I2C_Mem_Read(&hi2c2, LPS22HB_ADDR, 0x0F,
+                                          I2C_MEMADD_SIZE_8BIT, &who, 1, 100);
+  printf("WHO_AM_I: status=%d, value=0x%02X (LPS22HB = 0xB1)\r\n", st, who);
+
+  uint8_t ctrl = 0x32;
+  HAL_I2C_Mem_Write(&hi2c2, LPS22HB_ADDR, 0x10, I2C_MEMADD_SIZE_8BIT, &ctrl, 1, 100);
+  //--------------------------------------------------------------------------------//
+
+  hts_ok = (hts221_init() == HAL_OK);
+  if (!hts_ok) printf("HTS221 init failed\r\n");
 
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  while (1)
-  {
+      while (1)
+      {
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-  }
+    	  HAL_UART_Transmit(&huart1, (uint8_t *)" ", 1, 100);
+    	  uint8_t buf[5];
+    	  if (HAL_I2C_Mem_Read(&hi2c2, LPS22HB_ADDR, 0x28, I2C_MEMADD_SIZE_8BIT, buf, 5, 100) == HAL_OK)
+    	  {
+    	      int32_t raw_p = (int32_t)(((uint32_t)buf[2] << 16) | ((uint32_t)buf[1] << 8) | buf[0]);
+    	      int16_t raw_t = (int16_t)(((uint16_t)buf[4] << 8) | buf[3]);
+
+    	      int32_t p_x100 = (int32_t)(((int64_t)raw_p * 100) / 4096);
+    	      int32_t t_x100 = raw_t;
+
+    	      pressure_hpa  = raw_p / 4096.0f;
+    	      temperature_c = raw_t / 100.0f;
+
+    	      printf("P = %ld.%02ld hPa, T = %ld.%02ld C\r\n",
+    	             (long)(p_x100 / 100), (long)(p_x100 % 100),
+    	             (long)(t_x100 / 100), (long)labs(t_x100 % 100));
+    	  }else {
+    	      printf("I2C read failed\r\n");
+    	  }
+
+
+    	  if (hts_ok && hts221_read() == HAL_OK)
+    	  {
+    	      int t = (int)(temp_hts_c * 100.0f);
+    	      int h = (int)(humidity_rh * 100.0f);
+    	      printf("HTS221: T = %d.%02d C, RH = %d.%02d %%\r\n",
+    	             t / 100, abs(t % 100), h / 100, h % 100);
+    	  } else if (hts_ok) {
+    	      printf("HTS221 read failed\r\n");
+    	  }
+    	  HAL_Delay(5000);
+      }
   /* USER CODE END 3 */
 }
 
@@ -425,7 +558,7 @@ static void MX_USART1_UART_Init(void)
   /* USER CODE END USART1_Init 1 */
   huart1.Instance = USART1;
   huart1.Init.BaudRate = 115200;
-  huart1.Init.WordLength = UART_WORDLENGTH_9B;
+  huart1.Init.WordLength = UART_WORDLENGTH_8B;
   huart1.Init.StopBits = UART_STOPBITS_1;
   huart1.Init.Parity = UART_PARITY_NONE;
   huart1.Init.Mode = UART_MODE_TX_RX;
@@ -477,7 +610,11 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-
+int _write(int file, char *ptr, int len)
+{
+  HAL_UART_Transmit(&huart1, (uint8_t *)ptr, len, HAL_MAX_DELAY);
+  return len;
+}
 /* USER CODE END 4 */
 
 /**
@@ -491,6 +628,9 @@ void Error_Handler(void)
   __disable_irq();
   while (1)
   {
+
+
+
   }
   /* USER CODE END Error_Handler_Debug */
 }
