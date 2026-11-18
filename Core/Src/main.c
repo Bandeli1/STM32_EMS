@@ -100,6 +100,9 @@ static void MX_DFSDM1_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+//---------------------------------Temprerature and Pressure------------------------------------//
+
 static HAL_StatusTypeDef hts221_init(void)
 {
   uint8_t who = 0;
@@ -151,7 +154,35 @@ static HAL_StatusTypeDef hts221_read(void)
   return HAL_OK;
 }
 
-//----------------------------------microphone----------------------------------------------//
+//-------------------------Bluetooth Telemetry--------------------------//
+extern void sendData(uint8_t* data_buffer, uint8_t Nb_bytes);
+extern volatile uint8_t connected;
+
+static int to_x10(float v)
+{
+  return (int)(v * 10.0f + (v >= 0.0f ? 0.5f : -0.5f));
+}
+
+static void send_telemetry(int temp10, int hum10, int press10, int aqi, int light, int sound)
+{
+  char buf[64];
+  int len = snprintf(buf, sizeof(buf), "%s%d.%d,%s%d.%d,%s%d.%d,%d,%d,%d\n",
+      temp10  < 0 ? "-" : "", abs(temp10)  / 10, abs(temp10)  % 10,
+      hum10   < 0 ? "-" : "", abs(hum10)   / 10, abs(hum10)   % 10,
+      press10 < 0 ? "-" : "", abs(press10) / 10, abs(press10) % 10,
+      aqi, light, sound);
+
+  if (len > 0 && connected) {
+      for (int i = 0; i < len; i += 20) {
+          int n = (len - i > 20) ? 20 : (len - i);
+          sendData((uint8_t*)(buf + i), (uint8_t)n);
+          HAL_Delay(20);
+      }
+      printf("sent %d bytes\r\n", len);
+  }
+}
+
+//----------------------------------Microphone----------------------------------------------//
 volatile float sound_db = 0.0f;
 
 static float mic_measure_db(void)
@@ -173,17 +204,16 @@ static float mic_measure_db(void)
   if (count < 16) return -1.0f;
 
   double mean = (double)sum / count;
-  double var  = (double)sumsq / count - mean * mean;   /* entfernt den DC-Anteil */
+  double var  = (double)sumsq / count - mean * mean;
   if (var < 1.0) var = 1.0;
   float rms = sqrtf((float)var);
 
-  /* MP34DT01: 94 dB SPL = -26 dBFS, Vollaussteuerung (Sinus-RMS) = 23170 bei 16 Bit */
   return 120.0f + 20.0f * log10f(rms / 23170.0f);
 }
 
 
 //-------------------------------Air-Quality--------------------------------//
-/* PM2.5 (ug/m3) -> US AQI, linear interpolation between EPA breakpoints (2024 table) */
+
 static int pm25_to_aqi(float c)
 {
   static const float bp[]  = {0.0f, 9.0f, 35.4f, 55.4f, 125.4f, 225.4f, 325.4f};
@@ -200,7 +230,7 @@ static int pm25_to_aqi(float c)
 
 static HAL_StatusTypeDef hm3301_init(void)
 {
-  uint8_t cmd = 0x88;   /* select I2C mode */
+  uint8_t cmd = 0x88;
   return HAL_I2C_Master_Transmit(&hi2c1, HM3301_ADDR, &cmd, 1, 100);
 }
 
@@ -212,14 +242,16 @@ static HAL_StatusTypeDef hm3301_read(void)
 
   uint8_t sum = 0;
   for (int i = 0; i < 28; i++) sum += d[i];
-  if (sum != d[28]) return HAL_ERROR;          /* checksum */
+  if (sum != d[28]) return HAL_ERROR;
 
-  pm1_0 = (uint16_t)((d[10] << 8) | d[11]);    /* atmospheric values */
+  pm1_0 = (uint16_t)((d[10] << 8) | d[11]);
   pm2_5 = (uint16_t)((d[12] << 8) | d[13]);
   pm10  = (uint16_t)((d[14] << 8) | d[15]);
   aqi_value = pm25_to_aqi((float)pm2_5);
   return HAL_OK;
 }
+
+//------------------------------------------------------------------------//
 
 /* USER CODE END 0 */
 
@@ -262,11 +294,11 @@ int main(void)
   MX_BlueNRG_MS_Init();
   /* USER CODE BEGIN 2 */
   
-  //-------------------------I2C Setup ------------------------------------//
-
+  //-------------------------I2C Setup--------------------------//
   HAL_Delay(500);
   test_status = HAL_I2C_IsDeviceReady(&hi2c2, (0x5D << 1), 3, 100);
 
+  //-------------------------I2C1 Scan (External/Grove)--------------------------//
   printf("Scanning I2C1 (External/Grove)...\r\n");
   for (uint16_t i = 1; i < 128; i++) {
       if (HAL_I2C_IsDeviceReady(&hi2c1, (i << 1), 1, 10) == HAL_OK) {
@@ -274,6 +306,7 @@ int main(void)
       }
   }
 
+  //-------------------------I2C2 Scan (Internal)--------------------------//
   printf("Scanning I2C2 (Internal)...\r\n");
   for (uint16_t i = 1; i < 128; i++) {
       if (HAL_I2C_IsDeviceReady(&hi2c2, (i << 1), 1, 10) == HAL_OK) {
@@ -281,7 +314,7 @@ int main(void)
       }
   }
 
-  //------------------------------Luftdruck Sensor -----------------------//
+  //-------------------------Luftdruck Sensor (LPS22HB)--------------------------//
   HAL_Delay(100);
 
   uint8_t who = 0;
@@ -291,15 +324,16 @@ int main(void)
 
   uint8_t ctrl = 0x32;
   HAL_I2C_Mem_Write(&hi2c2, LPS22HB_ADDR, 0x10, I2C_MEMADD_SIZE_8BIT, &ctrl, 1, 100);
-  //--------------------------------------------------------------------------------//
 
+  //-------------------------Temperatur & Feuchte (HTS221)--------------------------//
   hts_ok = (hts221_init() == HAL_OK);
   if (!hts_ok) printf("HTS221 init failed\r\n");
 
+  //-------------------------Mikrofon--------------------------//
   if (HAL_DFSDM_FilterRegularStart(&hdfsdm1_filter0) != HAL_OK)
       printf("Microphone start failed\r\n");
 
- //-----------------Air-Quality----------------------------------------------//
+  //-------------------------Air-Quality (HM3301)--------------------------//
   hm_ok = (hm3301_init() == HAL_OK);
   if (!hm_ok) printf("HM3301 init failed\r\n");
 
@@ -311,12 +345,15 @@ int main(void)
   {
     /* USER CODE END WHILE */
 
-  MX_BlueNRG_MS_Process();
+    //-------------------------Bluetooth Process--------------------------//
+    MX_BlueNRG_MS_Process();
     /* USER CODE BEGIN 3 */
+
     if (HAL_GetTick() - last_tick >= 1000)
     {
       last_tick = HAL_GetTick();
 
+      //-------------------------Luftdruck Sensor (LPS22HB)--------------------------//
       uint8_t buf[5];
       if (HAL_I2C_Mem_Read(&hi2c2, LPS22HB_ADDR, 0x28, I2C_MEMADD_SIZE_8BIT, buf, 5, 100) == HAL_OK)
       {
@@ -338,6 +375,7 @@ int main(void)
         printf("I2C read failed\r\n");
       }
 
+      //-------------------------Temperatur & Feuchte (HTS221)--------------------------//
       if (hts_ok && hts221_read() == HAL_OK)
       {
         int t = (int)(temp_hts_c * 100.0f);
@@ -350,9 +388,11 @@ int main(void)
         printf("HTS221 read failed\r\n");
       }
 
+      //-------------------------Mikrofon--------------------------//
       sound_db = mic_measure_db();
       printf("Sound: %d dB (approx.)\r\n", (int)sound_db);
 
+      //-------------------------Air-Quality (HM3301)--------------------------//
       if (hm_ok && hm3301_read() == HAL_OK)
       {
         printf("PM1.0 = %u, PM2.5 = %u, PM10 = %u ug/m3, AQI = %d\r\n",
@@ -362,6 +402,14 @@ int main(void)
       {
         printf("HM3301 read failed\r\n");
       }
+
+      //-------------------------Bluetooth Telemetry--------------------------//
+      printf("BLE connected = %d\r\n", (int)connected);
+      if (connected) {
+         send_telemetry(to_x10(temp_hts_c), to_x10(humidity_rh), to_x10(pressure_hpa), aqi_value, 0, (int)sound_db);
+      }
+
+      HAL_Delay(1000);
     }
   }
 
