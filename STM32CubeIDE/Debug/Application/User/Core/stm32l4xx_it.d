@@ -38,6 +38,8 @@ Application/User/Core/stm32l4xx_it.o: \
  ../../Drivers/STM32L4xx_HAL_Driver/Inc/stm32l4xx_hal_tim_ex.h \
  ../../Drivers/STM32L4xx_HAL_Driver/Inc/stm32l4xx_hal_uart.h \
  ../../Drivers/STM32L4xx_HAL_Driver/Inc/stm32l4xx_hal_uart_ex.h \
+ ../../BlueNRG_MS/Target/hci_tl_interface.h ../../Core/Inc/custom_bus.h \
+ ../../Core/Inc/custom_conf.h ../../Core/Inc/custom_errno.h \
  ../../Core/Inc/stm32l4xx_it.h
 ../../Core/Inc/main.h:
 ../../Drivers/STM32L4xx_HAL_Driver/Inc/stm32l4xx_hal.h:
@@ -77,4 +79,8 @@ Application/User/Core/stm32l4xx_it.o: \
 ../../Drivers/STM32L4xx_HAL_Driver/Inc/stm32l4xx_hal_tim_ex.h:
 ../../Drivers/STM32L4xx_HAL_Driver/Inc/stm32l4xx_hal_uart.h:
 ../../Drivers/STM32L4xx_HAL_Driver/Inc/stm32l4xx_hal_uart_ex.h:
+../../BlueNRG_MS/Target/hci_tl_interface.h:
+../../Core/Inc/custom_bus.h:
+../../Core/Inc/custom_conf.h:
+../../Core/Inc/custom_errno.h:
 ../../Core/Inc/stm32l4xx_it.h:

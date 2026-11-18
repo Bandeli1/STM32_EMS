@@ -37,6 +37,11 @@
 			<locationURI>PARENT-1-PROJECT_LOC/EM_System.ioc</locationURI>
 		</link>
 		<link>
+			<name>Drivers/BSP</name>
+			<type>2</type>
+			<location>/home/elias/Dokumente/ETH/Sem5/PnS/Sensor and IoT/My Project/EM_System/Drivers/BSP</location>
+		</link>
+		<link>
 			<name>Drivers/CMSIS/system_stm32l4xx.c</name>
 			<type>1</type>
 			<locationURI>PARENT-1-PROJECT_LOC/Core/Src/system_stm32l4xx.c</locationURI>
@@ -162,6 +167,11 @@
 			<locationURI>PARENT-1-PROJECT_LOC/Drivers/STM32L4xx_HAL_Driver/Src/stm32l4xx_hal_uart_ex.c</locationURI>
 		</link>
 		<link>
+			<name>Application/User/Core/custom_bus.c</name>
+			<type>1</type>
+			<locationURI>PARENT-1-PROJECT_LOC/Core/Src/custom_bus.c</locationURI>
+		</link>
+		<link>
 			<name>Application/User/Core/main.c</name>
 			<type>1</type>
 			<locationURI>PARENT-1-PROJECT_LOC/Core/Src/main.c</locationURI>
@@ -175,6 +185,66 @@
 			<name>Application/User/Core/stm32l4xx_it.c</name>
 			<type>1</type>
 			<locationURI>PARENT-1-PROJECT_LOC/Core/Src/stm32l4xx_it.c</locationURI>
+		</link>
+		<link>
+			<name>Application/User/BlueNRG_MS/App/app_bluenrg_ms.c</name>
+			<type>1</type>
+			<locationURI>PARENT-1-PROJECT_LOC/BlueNRG_MS/App/app_bluenrg_ms.c</locationURI>
+		</link>
+		<link>
+			<name>Application/User/BlueNRG_MS/App/sample_service.c</name>
+			<type>1</type>
+			<locationURI>PARENT-1-PROJECT_LOC/BlueNRG_MS/App/sample_service.c</locationURI>
+		</link>
+		<link>
+			<name>Application/User/BlueNRG_MS/Target/hci_tl_interface.c</name>
+			<type>1</type>
+			<locationURI>PARENT-1-PROJECT_LOC/BlueNRG_MS/Target/hci_tl_interface.c</locationURI>
+		</link>
+		<link>
+			<name>Middlewares/BlueNRG-MS/Wireless/BlueNRG-MS/Controller/bluenrg_gap_aci.c</name>
+			<type>1</type>
+			<locationURI>PARENT-1-PROJECT_LOC/Middlewares/ST/BlueNRG-MS/hci/controller/bluenrg_gap_aci.c</locationURI>
+		</link>
+		<link>
+			<name>Middlewares/BlueNRG-MS/Wireless/BlueNRG-MS/Controller/bluenrg_gatt_aci.c</name>
+			<type>1</type>
+			<locationURI>PARENT-1-PROJECT_LOC/Middlewares/ST/BlueNRG-MS/hci/controller/bluenrg_gatt_aci.c</locationURI>
+		</link>
+		<link>
+			<name>Middlewares/BlueNRG-MS/Wireless/BlueNRG-MS/Controller/bluenrg_hal_aci.c</name>
+			<type>1</type>
+			<locationURI>PARENT-1-PROJECT_LOC/Middlewares/ST/BlueNRG-MS/hci/controller/bluenrg_hal_aci.c</locationURI>
+		</link>
+		<link>
+			<name>Middlewares/BlueNRG-MS/Wireless/BlueNRG-MS/Controller/bluenrg_l2cap_aci.c</name>
+			<type>1</type>
+			<locationURI>PARENT-1-PROJECT_LOC/Middlewares/ST/BlueNRG-MS/hci/controller/bluenrg_l2cap_aci.c</locationURI>
+		</link>
+		<link>
+			<name>Middlewares/BlueNRG-MS/Wireless/BlueNRG-MS/Controller/bluenrg_updater_aci.c</name>
+			<type>1</type>
+			<locationURI>PARENT-1-PROJECT_LOC/Middlewares/ST/BlueNRG-MS/hci/controller/bluenrg_updater_aci.c</locationURI>
+		</link>
+		<link>
+			<name>Middlewares/BlueNRG-MS/Wireless/BlueNRG-MS/Controller/bluenrg_utils_small.c</name>
+			<type>1</type>
+			<locationURI>PARENT-1-PROJECT_LOC/Middlewares/ST/BlueNRG-MS/hci/controller/bluenrg_utils_small.c</locationURI>
+		</link>
+		<link>
+			<name>Middlewares/BlueNRG-MS/Wireless/BlueNRG-MS/Utils/ble_list.c</name>
+			<type>1</type>
+			<locationURI>PARENT-1-PROJECT_LOC/Middlewares/ST/BlueNRG-MS/utils/ble_list.c</locationURI>
+		</link>
+		<link>
+			<name>Middlewares/BlueNRG-MS/Wireless/BlueNRG-MS/HCI_TL/Basic/hci_le.c</name>
+			<type>1</type>
+			<locationURI>PARENT-1-PROJECT_LOC/Middlewares/ST/BlueNRG-MS/hci/hci_le.c</locationURI>
+		</link>
+		<link>
+			<name>Middlewares/BlueNRG-MS/Wireless/BlueNRG-MS/HCI_TL/Basic/hci_tl.c</name>
+			<type>1</type>
+			<locationURI>PARENT-1-PROJECT_LOC/Middlewares/ST/BlueNRG-MS/hci/hci_tl_patterns/Basic/hci_tl.c</locationURI>
 		</link>
 	</linkedResources>
 </projectDescription>

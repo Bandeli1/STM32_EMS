@@ -18,6 +18,7 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "app_bluenrg_ms.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -79,6 +80,8 @@ volatile float temp_hts_c  = 0.0f;
 static uint8_t hm_ok = 0;
 volatile uint16_t pm1_0 = 0, pm2_5 = 0, pm10 = 0;
 volatile int aqi_value = 0;
+
+static uint32_t last_tick = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -256,6 +259,7 @@ int main(void)
   MX_TIM6_Init();
   MX_USART1_UART_Init();
   MX_DFSDM1_Init();
+  MX_BlueNRG_MS_Init();
   /* USER CODE BEGIN 2 */
   
   //-------------------------I2C Setup ------------------------------------//
@@ -303,61 +307,66 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-      while (1)
-      {
+  while (1)
+  {
     /* USER CODE END WHILE */
 
+  MX_BlueNRG_MS_Process();
     /* USER CODE BEGIN 3 */
-    	  HAL_UART_Transmit(&huart1, (uint8_t *)" ", 1, 100);
-    	  uint8_t buf[5];
-    	  if (HAL_I2C_Mem_Read(&hi2c2, LPS22HB_ADDR, 0x28, I2C_MEMADD_SIZE_8BIT, buf, 5, 100) == HAL_OK)
-    	  {
-    	      int32_t raw_p = (int32_t)(((uint32_t)buf[2] << 16) | ((uint32_t)buf[1] << 8) | buf[0]);
-    	      int16_t raw_t = (int16_t)(((uint16_t)buf[4] << 8) | buf[3]);
+    if (HAL_GetTick() - last_tick >= 1000)
+    {
+      last_tick = HAL_GetTick();
 
-    	      int32_t p_x100 = (int32_t)(((int64_t)raw_p * 100) / 4096);
-    	      int32_t t_x100 = raw_t;
+      uint8_t buf[5];
+      if (HAL_I2C_Mem_Read(&hi2c2, LPS22HB_ADDR, 0x28, I2C_MEMADD_SIZE_8BIT, buf, 5, 100) == HAL_OK)
+      {
+        int32_t raw_p = (int32_t)(((uint32_t)buf[2] << 16) | ((uint32_t)buf[1] << 8) | buf[0]);
+        int16_t raw_t = (int16_t)(((uint16_t)buf[4] << 8) | buf[3]);
 
-    	      pressure_hpa  = raw_p / 4096.0f;
-    	      temperature_c = raw_t / 100.0f;
+        int32_t p_x100 = (int32_t)(((int64_t)raw_p * 100) / 4096);
+        int32_t t_x100 = raw_t;
 
-    	      printf("P = %ld.%02ld hPa, T = %ld.%02ld C\r\n",
-    	             (long)(p_x100 / 100), (long)(p_x100 % 100),
-    	             (long)(t_x100 / 100), (long)labs(t_x100 % 100));
-    	  }else {
-    	      printf("I2C read failed\r\n");
-    	  }
+        pressure_hpa  = raw_p / 4096.0f;
+        temperature_c = raw_t / 100.0f;
 
-
-    	  if (hts_ok && hts221_read() == HAL_OK)
-    	  {
-    	      int t = (int)(temp_hts_c * 100.0f);
-    	      int h = (int)(humidity_rh * 100.0f);
-    	      printf("HTS221: T = %d.%02d C, RH = %d.%02d %%\r\n",
-    	             t / 100, abs(t % 100), h / 100, h % 100);
-    	  } else if (hts_ok) {
-    	      printf("HTS221 read failed\r\n");
-    	  }
-
-    	  sound_db = mic_measure_db();
-    	  printf("Sound: %d dB (approx.)\r\n", (int)sound_db);
-
-
-    	  if (hm_ok && hm3301_read() == HAL_OK)
-    	  {
-    	      printf("PM1.0 = %u, PM2.5 = %u, PM10 = %u ug/m3, AQI = %d\r\n",
-    	             (unsigned)pm1_0, (unsigned)pm2_5, (unsigned)pm10, aqi_value);
-    	  }
-    	  else if (hm_ok)
-    	  {
-    	      printf("HM3301 read failed\r\n");
-    	  }
-
-    	  HAL_Delay(1000);
+        printf("P = %ld.%02ld hPa, T = %ld.%02ld C\r\n",
+               (long)(p_x100 / 100), (long)(p_x100 % 100),
+               (long)(t_x100 / 100), (long)labs(t_x100 % 100));
       }
+      else
+      {
+        printf("I2C read failed\r\n");
+      }
+
+      if (hts_ok && hts221_read() == HAL_OK)
+      {
+        int t = (int)(temp_hts_c * 100.0f);
+        int h = (int)(humidity_rh * 100.0f);
+        printf("HTS221: T = %d.%02d C, RH = %d.%02d %%\r\n",
+               t / 100, abs(t % 100), h / 100, h % 100);
+      }
+      else if (hts_ok)
+      {
+        printf("HTS221 read failed\r\n");
+      }
+
+      sound_db = mic_measure_db();
+      printf("Sound: %d dB (approx.)\r\n", (int)sound_db);
+
+      if (hm_ok && hm3301_read() == HAL_OK)
+      {
+        printf("PM1.0 = %u, PM2.5 = %u, PM10 = %u ug/m3, AQI = %d\r\n",
+               (unsigned)pm1_0, (unsigned)pm2_5, (unsigned)pm10, aqi_value);
+      }
+      else if (hm_ok)
+      {
+        printf("HM3301 read failed\r\n");
+      }
+    }
+  }
+
   /* USER CODE END 3 */
 }
-
 /**
   * @brief System Clock Configuration
   * @retval None
@@ -744,20 +753,44 @@ static void MX_GPIO_Init(void)
   /* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
+  __HAL_RCC_GPIOE_CLK_ENABLE();
   __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
-  __HAL_RCC_GPIOE_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
+  __HAL_RCC_GPIOD_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOA, DISP_CS_Pin|LED_DIN_Pin, GPIO_PIN_RESET);
 
-  /*Configure GPIO pins : DISP_CS_Pin LED_DIN_Pin */
-  GPIO_InitStruct.Pin = DISP_CS_Pin|LED_DIN_Pin;
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_13, GPIO_PIN_SET);
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_8, GPIO_PIN_SET);
+
+  /*Configure GPIO pin : PE6 */
+  GPIO_InitStruct.Pin = GPIO_PIN_6;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : DISP_CS_Pin PA8 LED_DIN_Pin */
+  GPIO_InitStruct.Pin = DISP_CS_Pin|GPIO_PIN_8|LED_DIN_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : PD13 */
+  GPIO_InitStruct.Pin = GPIO_PIN_13;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
+
+  /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI9_5_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
