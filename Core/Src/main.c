@@ -25,6 +25,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
+#include <string.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -82,6 +83,12 @@ volatile uint16_t pm1_0 = 0, pm2_5 = 0, pm10 = 0;
 volatile int aqi_value = 0;
 
 static uint32_t last_tick = 0;
+
+typedef struct { int temp, humidity, pressure, aqi, light, sound; } thresholds_t;
+thresholds_t thr = {40, 70, 1030, 150, 800, 85};   // same defaults as the dashboard
+
+extern char cmd_line[160];
+extern volatile uint8_t cmd_ready;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -179,6 +186,30 @@ static void send_telemetry(int temp10, int hum10, int press10, int aqi, int ligh
           HAL_Delay(20);
       }
       printf("sent %d bytes\r\n", len);
+  }
+}
+
+static int json_int(const char *s, const char *key, int fallback)
+{
+  char pat[16];
+  snprintf(pat, sizeof(pat), "\"%s\":", key);
+  const char *p = strstr(s, pat);
+  return p ? atoi(p + strlen(pat)) : fallback;
+}
+
+static void handle_command(const char *line)
+{
+  if (line[0] == '{') {
+    thr.temp     = json_int(line, "temp",     thr.temp);
+    thr.humidity = json_int(line, "humidity", thr.humidity);
+    thr.pressure = json_int(line, "pressure", thr.pressure);
+    thr.aqi      = json_int(line, "aqi",      thr.aqi);
+    thr.light    = json_int(line, "light",    thr.light);
+    thr.sound    = json_int(line, "sound",    thr.sound);
+    printf("Thresholds: T=%d H=%d P=%d AQI=%d L=%d S=%d\r\n",
+           thr.temp, thr.humidity, thr.pressure, thr.aqi, thr.light, thr.sound);
+  } else {
+    printf("CMD: %s\r\n", line);
   }
 }
 
@@ -349,6 +380,8 @@ int main(void)
     MX_BlueNRG_MS_Process();
     /* USER CODE BEGIN 3 */
 
+    if (cmd_ready) { handle_command(cmd_line); cmd_ready = 0; }
+
     if (HAL_GetTick() - last_tick >= 1000)
     {
       last_tick = HAL_GetTick();
@@ -409,7 +442,13 @@ int main(void)
          send_telemetry(to_x10(temp_hts_c), to_x10(humidity_rh), to_x10(pressure_hpa), aqi_value, 0, (int)sound_db);
       }
 
-      HAL_Delay(1000);
+      if (cmd_ready) { handle_command(cmd_line); cmd_ready = 0; }
+
+      int alert = (temp_hts_c > thr.temp) || (humidity_rh > thr.humidity) ||
+                  (pressure_hpa > thr.pressure) || (aqi_value > thr.aqi) ||
+                  ((int)sound_db > thr.sound);
+      printf("ALERT = %d\r\n", alert);
+
     }
   }
 

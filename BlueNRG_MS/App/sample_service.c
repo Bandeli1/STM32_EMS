@@ -23,6 +23,7 @@
 #include "bluenrg_hal_aci.h"
 //#include "custom.h"
 #include "stm32l475e_iot01.h"
+#include <string.h>
 
 /** @addtogroup Applications
  *  @{
@@ -205,14 +206,23 @@ void startReadRXCharHandle(void)
  * @param  Nb_bytes : number of bytes to be received
  * @retval None
  */
+static char rx_buf[160];
+static uint8_t rx_len = 0;
+char cmd_line[160];
+volatile uint8_t cmd_ready = 0;
+
 void receiveData(uint8_t* data_buffer, uint8_t Nb_bytes)
 {
-  BSP_LED_Toggle(LED2);
-
-  for(int i = 0; i < Nb_bytes; i++) {
-    printf("%c", data_buffer[i]);
+  for (uint8_t i = 0; i < Nb_bytes; i++) {
+    char c = (char)data_buffer[i];
+    if (c == '\n') {
+      rx_buf[rx_len] = 0;
+      if (!cmd_ready) { memcpy(cmd_line, rx_buf, rx_len + 1); cmd_ready = 1; }
+      rx_len = 0;
+    } else if (c != '\r' && rx_len < sizeof(rx_buf) - 1) {
+      rx_buf[rx_len++] = c;
+    }
   }
-  fflush(stdout);
 }
 
 /**
