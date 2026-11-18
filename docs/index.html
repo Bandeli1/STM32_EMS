@@ -1,0 +1,925 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>STM32 Environmental Monitoring Dashboard</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        cyber: {
+                            bg: '#0a0e17',
+                            card: '#121824',
+                            border: '#1f293d',
+                            cyan: '#00f0ff',
+                            green: '#00ff66',
+                            amber: '#ffb700',
+                            coral: '#ff2a6d'
+                        }
+                    },
+                    fontFamily: {
+                        mono: ['JetBrains Mono', 'Courier New', 'monospace'],
+                        sans: ['Inter', 'sans-serif']
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            background-color: #0a0e17;
+            color: #e2e8f0;
+            font-family: 'Inter', sans-serif;
+        }
+        .glow-cyan { box-shadow: 0 0 15px rgba(0, 240, 255, 0.2); }
+        .glow-coral { box-shadow: 0 0 15px rgba(255, 42, 109, 0.25); }
+        .glow-green { box-shadow: 0 0 15px rgba(0, 255, 102, 0.2); }
+        
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0a0e17;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #1f293d;
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #00f0ff;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col bg-cyber-bg text-slate-200">
+
+    <!-- TOP HEADER / NAVBAR -->
+    <header class="border-b border-cyber-border bg-cyber-card/90 backdrop-blur sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-4">
+            <!-- Branding -->
+            <div class="flex items-center gap-3">
+                <div class="p-2 bg-cyan-500/10 border border-cyber-cyan/40 rounded-lg text-cyber-cyan">
+                    <i data-lucide="cpu" class="w-6 h-6"></i>
+                </div>
+                <div>
+                    <h1 class="font-bold text-lg tracking-wider text-white flex items-center gap-2">
+                        STM32 <span class="text-cyber-cyan font-mono text-xs px-2 py-0.5 rounded bg-cyan-950 border border-cyan-800">HARDWARE TELEMETRY</span>
+                    </h1>
+                    <p class="text-xs text-slate-400">Web Bluetooth Real-Time Station</p>
+                </div>
+            </div>
+
+            <!-- Connection & Configuration Controls -->
+            <div class="flex items-center gap-3 flex-wrap">
+                <button onclick="toggleUuidConfig()" class="px-3 py-1.5 bg-slate-800/80 hover:bg-slate-700 border border-cyber-border text-slate-300 text-xs font-mono rounded-lg transition-all flex items-center gap-1.5">
+                    <i data-lucide="settings" class="w-3.5 h-3.5 text-slate-400"></i>
+                    <span>BLE UUIDs</span>
+                </button>
+
+                <div id="connectionBadge" class="flex items-center gap-2 px-3 py-1.5 rounded-lg border bg-rose-950/40 border-rose-800/50 text-rose-400 text-xs font-mono">
+                    <span id="statusDot" class="w-2 h-2 rounded-full bg-rose-500"></span>
+                    <span id="statusText">DISCONNECTED</span>
+                </div>
+
+                <button id="connectBtn" onclick="connectBLE()" class="flex items-center gap-2 px-4 py-1.5 bg-cyber-cyan/10 hover:bg-cyber-cyan/20 border border-cyber-cyan/50 text-cyber-cyan text-xs font-bold rounded-lg transition-all glow-cyan">
+                    <i data-lucide="bluetooth" class="w-4 h-4"></i>
+                    <span>CONNECT STM32</span>
+                </button>
+                <button id="disconnectBtn" onclick="disconnectBLE()" class="hidden flex items-center gap-2 px-4 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/50 text-rose-400 text-xs font-bold rounded-lg transition-all">
+                    <i data-lucide="bluetooth-off" class="w-4 h-4"></i>
+                    <span>DISCONNECT</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- EXPANDABLE CUSTOM BLE UUID CONFIGURATION PANEL -->
+        <div id="uuidConfigPanel" class="hidden border-t border-cyber-border bg-slate-950/90 p-4">
+            <div class="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-4 text-xs font-mono">
+                <div>
+                    <label class="text-slate-400 block mb-1">GATT Service UUID</label>
+                    <input type="text" id="cfg-service-uuid" autocomplete="off" value="d973f2e0-b19e-11e2-9e96-0800200c9a66" class="w-full bg-cyber-card border border-cyber-border px-2 py-1.5 rounded text-cyber-cyan focus:outline-none focus:border-cyber-cyan">
+                </div>
+                <div>
+                    <label class="text-slate-400 block mb-1">TX Characteristic UUID (STM32 -> Web)</label>
+                    <input type="text" id="cfg-tx-uuid" autocomplete="off" value="d973f2e1-b19e-11e2-9e96-0800200c9a66" class="w-full bg-cyber-card border border-cyber-border px-2 py-1.5 rounded text-cyber-cyan focus:outline-none focus:border-cyber-cyan">
+                </div>
+                <div>
+                    <label class="text-slate-400 block mb-1">RX Characteristic UUID (Web -> STM32)</label>
+                    <input type="text" id="cfg-rx-uuid" autocomplete="off" value="d973f2e2-b19e-11e2-9e96-0800200c9a66" class="w-full bg-cyber-card border border-cyber-border px-2 py-1.5 rounded text-cyber-cyan focus:outline-none focus:border-cyber-cyan">
+                </div>
+            </div>
+            <div class="max-w-7xl mx-auto mt-2 text-[10px] text-slate-500 font-mono">
+                Default: ST BlueNRG chat service (your board). Adjust if your STM32 BLE stack uses other UUIDs (Nordic UART: 6e400001 / 6e400003 / 6e400002-b5a3-f393-e0a9-e50e24dcca9e).
+            </div>
+        </div>
+    </header>
+
+    <!-- MAIN DASHBOARD CONTENT -->
+    <main class="max-w-7xl mx-auto px-4 py-6 flex-1 w-full flex flex-col gap-6">
+
+        <!-- NO HARDWARE CONNECTED BANNER -->
+        <div id="noDataBanner" class="flex items-center justify-between p-4 rounded-xl bg-slate-900/80 border border-slate-800 text-slate-300">
+            <div class="flex items-center gap-3">
+                <i data-lucide="radio-receiver" class="w-5 h-5 text-cyber-cyan animate-pulse"></i>
+                <div class="text-xs">
+                    <span class="font-bold font-mono text-white">AWAITING REAL STM32 TELEMETRY STREAM</span>
+                    <p class="text-slate-400">Click <span class="text-cyber-cyan font-semibold">"CONNECT STM32"</span> above to pair your Web Bluetooth adapter with your MCU. Charts and metrics will update live upon packet arrival.</p>
+                </div>
+            </div>
+            <div class="text-right font-mono text-[11px] text-slate-500 hidden sm:block">
+                Supported Formats: JSON / CSV
+            </div>
+        </div>
+
+        <!-- GLOBAL ALERT BANNER -->
+        <div id="globalAlertBanner" class="hidden flex items-center justify-between p-4 rounded-xl bg-rose-950/80 border border-rose-500 text-rose-200 glow-coral animate-bounce">
+            <div class="flex items-center gap-3">
+                <i data-lucide="alert-triangle" class="w-6 h-6 text-rose-400"></i>
+                <div>
+                    <h4 class="font-bold text-sm font-mono">STM32 THRESHOLD ALERT</h4>
+                    <p id="alertBannerText" class="text-xs text-rose-300">Sensor payload value exceeds configured maximum threshold.</p>
+                </div>
+            </div>
+            <button onclick="dismissBanner()" class="text-xs bg-rose-900/60 hover:bg-rose-800 px-3 py-1 rounded border border-rose-700">Dismiss</button>
+        </div>
+
+        <!-- 6 LIVE TELEMETRY METRIC CARDS -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+            <!-- Temperature Card -->
+            <div id="card-temp" class="bg-cyber-card border border-cyber-border rounded-xl p-4 flex flex-col justify-between transition-all">
+                <div class="flex items-center justify-between text-slate-400">
+                    <span class="text-xs font-mono uppercase tracking-wider">Temperature</span>
+                    <i data-lucide="thermometer" class="w-4 h-4 text-cyber-coral"></i>
+                </div>
+                <div class="my-3">
+                    <div class="text-2xl font-bold font-mono text-white" id="val-temp">-- <span class="text-xs font-normal text-slate-500">°C</span></div>
+                </div>
+                <div class="flex items-center justify-between text-[10px] font-mono border-t border-slate-800/80 pt-2">
+                    <span class="text-slate-500">MAX: <span id="thresh-display-temp">40</span>°C</span>
+                    <span id="badge-temp" class="px-1.5 py-0.5 rounded bg-slate-900 text-slate-500 border border-slate-800">NO DATA</span>
+                </div>
+            </div>
+
+            <!-- Humidity Card -->
+            <div id="card-humidity" class="bg-cyber-card border border-cyber-border rounded-xl p-4 flex flex-col justify-between transition-all">
+                <div class="flex items-center justify-between text-slate-400">
+                    <span class="text-xs font-mono uppercase tracking-wider">Humidity</span>
+                    <i data-lucide="droplets" class="w-4 h-4 text-cyber-cyan"></i>
+                </div>
+                <div class="my-3">
+                    <div class="text-2xl font-bold font-mono text-white" id="val-humidity">-- <span class="text-xs font-normal text-slate-500">%</span></div>
+                </div>
+                <div class="flex items-center justify-between text-[10px] font-mono border-t border-slate-800/80 pt-2">
+                    <span class="text-slate-500">MAX: <span id="thresh-display-humidity">70</span>%</span>
+                    <span id="badge-humidity" class="px-1.5 py-0.5 rounded bg-slate-900 text-slate-500 border border-slate-800">NO DATA</span>
+                </div>
+            </div>
+
+            <!-- Pressure Card -->
+            <div id="card-pressure" class="bg-cyber-card border border-cyber-border rounded-xl p-4 flex flex-col justify-between transition-all">
+                <div class="flex items-center justify-between text-slate-400">
+                    <span class="text-xs font-mono uppercase tracking-wider">Pressure</span>
+                    <i data-lucide="gauge" class="w-4 h-4 text-cyber-green"></i>
+                </div>
+                <div class="my-3">
+                    <div class="text-2xl font-bold font-mono text-white" id="val-pressure">-- <span class="text-xs font-normal text-slate-500">hPa</span></div>
+                </div>
+                <div class="flex items-center justify-between text-[10px] font-mono border-t border-slate-800/80 pt-2">
+                    <span class="text-slate-500">MAX: <span id="thresh-display-pressure">1030</span>hPa</span>
+                    <span id="badge-pressure" class="px-1.5 py-0.5 rounded bg-slate-900 text-slate-500 border border-slate-800">NO DATA</span>
+                </div>
+            </div>
+
+            <!-- Air Quality Card -->
+            <div id="card-aqi" class="bg-cyber-card border border-cyber-border rounded-xl p-4 flex flex-col justify-between transition-all">
+                <div class="flex items-center justify-between text-slate-400">
+                    <span class="text-xs font-mono uppercase tracking-wider">Air Quality</span>
+                    <i data-lucide="wind" class="w-4 h-4 text-cyber-amber"></i>
+                </div>
+                <div class="my-3">
+                    <div class="text-2xl font-bold font-mono text-white" id="val-aqi">-- <span class="text-xs font-normal text-slate-500">AQI</span></div>
+                </div>
+                <div class="flex items-center justify-between text-[10px] font-mono border-t border-slate-800/80 pt-2">
+                    <span class="text-slate-500">MAX: <span id="thresh-display-aqi">150</span></span>
+                    <span id="badge-aqi" class="px-1.5 py-0.5 rounded bg-slate-900 text-slate-500 border border-slate-800">NO DATA</span>
+                </div>
+            </div>
+
+            <!-- Light Card -->
+            <div id="card-light" class="bg-cyber-card border border-cyber-border rounded-xl p-4 flex flex-col justify-between transition-all">
+                <div class="flex items-center justify-between text-slate-400">
+                    <span class="text-xs font-mono uppercase tracking-wider">Light</span>
+                    <i data-lucide="sun" class="w-4 h-4 text-yellow-400"></i>
+                </div>
+                <div class="my-3">
+                    <div class="text-2xl font-bold font-mono text-white" id="val-light">-- <span class="text-xs font-normal text-slate-500">Lux</span></div>
+                </div>
+                <div class="flex items-center justify-between text-[10px] font-mono border-t border-slate-800/80 pt-2">
+                    <span class="text-slate-500">MAX: <span id="thresh-display-light">800</span>Lux</span>
+                    <span id="badge-light" class="px-1.5 py-0.5 rounded bg-slate-900 text-slate-500 border border-slate-800">NO DATA</span>
+                </div>
+            </div>
+
+            <!-- Sound Card -->
+            <div id="card-sound" class="bg-cyber-card border border-cyber-border rounded-xl p-4 flex flex-col justify-between transition-all">
+                <div class="flex items-center justify-between text-slate-400">
+                    <span class="text-xs font-mono uppercase tracking-wider">Sound</span>
+                    <i data-lucide="mic" class="w-4 h-4 text-purple-400"></i>
+                </div>
+                <div class="my-3">
+                    <div class="text-2xl font-bold font-mono text-white" id="val-sound">-- <span class="text-xs font-normal text-slate-500">dB</span></div>
+                </div>
+                <div class="flex items-center justify-between text-[10px] font-mono border-t border-slate-800/80 pt-2">
+                    <span class="text-slate-500">MAX: <span id="thresh-display-sound">85</span>dB</span>
+                    <span id="badge-sound" class="px-1.5 py-0.5 rounded bg-slate-900 text-slate-500 border border-slate-800">NO DATA</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- MAIN LAYOUT GRID: CHARTS & CONTROLS -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+            <!-- REAL-TIME INDIVIDUAL CHARTS (2/3 width) -->
+            <div class="lg:col-span-2 flex flex-col gap-6">
+                
+                <!-- Header Bar for Telemetry Graphs -->
+                <div class="flex items-center justify-between bg-cyber-card border border-cyber-border rounded-xl px-4 py-3">
+                    <h2 class="text-xs sm:text-sm font-bold text-slate-200 flex items-center gap-2 font-mono">
+                        <i data-lucide="line-chart" class="w-4 h-4 text-cyber-cyan"></i>
+                        HIGH-SENSITIVITY INDIVIDUAL SENSOR GRAPHS
+                    </h2>
+                    <span id="pktCountDisplay" class="text-[10px] font-mono text-slate-400 bg-slate-900 border border-slate-800 px-2.5 py-1 rounded">PACKETS: 0</span>
+                </div>
+
+                <!-- 6 Dedicated Individual Charts Grid -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <!-- 1. Temperature Chart -->
+                    <div class="bg-cyber-card border border-cyber-border rounded-xl p-4">
+                        <div class="flex items-center justify-between mb-2">
+                            <h3 class="text-xs font-bold text-slate-300 font-mono flex items-center gap-2">
+                                <i data-lucide="thermometer" class="w-3.5 h-3.5 text-cyber-coral"></i> TEMPERATURE (°C)
+                            </h3>
+                            <span class="text-[10px] font-mono text-slate-500">AUTO-SCALE</span>
+                        </div>
+                        <div class="relative h-44 w-full">
+                            <canvas id="tempChart"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- 2. Humidity Chart -->
+                    <div class="bg-cyber-card border border-cyber-border rounded-xl p-4">
+                        <div class="flex items-center justify-between mb-2">
+                            <h3 class="text-xs font-bold text-slate-300 font-mono flex items-center gap-2">
+                                <i data-lucide="droplets" class="w-3.5 h-3.5 text-cyber-cyan"></i> HUMIDITY (%)
+                            </h3>
+                            <span class="text-[10px] font-mono text-slate-500">AUTO-SCALE</span>
+                        </div>
+                        <div class="relative h-44 w-full">
+                            <canvas id="humidityChart"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- 3. Air Quality Chart -->
+                    <div class="bg-cyber-card border border-cyber-border rounded-xl p-4">
+                        <div class="flex items-center justify-between mb-2">
+                            <h3 class="text-xs font-bold text-slate-300 font-mono flex items-center gap-2">
+                                <i data-lucide="wind" class="w-3.5 h-3.5 text-cyber-amber"></i> AIR QUALITY (AQI)
+                            </h3>
+                            <span class="text-[10px] font-mono text-slate-500">AUTO-SCALE</span>
+                        </div>
+                        <div class="relative h-44 w-full">
+                            <canvas id="aqiChart"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- 4. Barometric Pressure Chart -->
+                    <div class="bg-cyber-card border border-cyber-border rounded-xl p-4">
+                        <div class="flex items-center justify-between mb-2">
+                            <h3 class="text-xs font-bold text-slate-300 font-mono flex items-center gap-2">
+                                <i data-lucide="gauge" class="w-3.5 h-3.5 text-cyber-green"></i> PRESSURE (hPa)
+                            </h3>
+                            <span class="text-[10px] font-mono text-slate-500">AUTO-SCALE</span>
+                        </div>
+                        <div class="relative h-44 w-full">
+                            <canvas id="pressureChart"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- 5. Light Sensor Chart -->
+                    <div class="bg-cyber-card border border-cyber-border rounded-xl p-4">
+                        <div class="flex items-center justify-between mb-2">
+                            <h3 class="text-xs font-bold text-slate-300 font-mono flex items-center gap-2">
+                                <i data-lucide="sun" class="w-3.5 h-3.5 text-yellow-400"></i> AMBIENT LIGHT (Lux)
+                            </h3>
+                            <span class="text-[10px] font-mono text-slate-500">AUTO-SCALE</span>
+                        </div>
+                        <div class="relative h-44 w-full">
+                            <canvas id="lightChart"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- 6. Sound Sensor Chart -->
+                    <div class="bg-cyber-card border border-cyber-border rounded-xl p-4">
+                        <div class="flex items-center justify-between mb-2">
+                            <h3 class="text-xs font-bold text-slate-300 font-mono flex items-center gap-2">
+                                <i data-lucide="mic" class="w-3.5 h-3.5 text-purple-400"></i> SOUND LEVEL (dB)
+                            </h3>
+                            <span class="text-[10px] font-mono text-slate-500">AUTO-SCALE</span>
+                        </div>
+                        <div class="relative h-44 w-full">
+                            <canvas id="soundChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- RAW BLE INCOMING PACKET STREAM TERMINAL -->
+                <div class="bg-cyber-card border border-cyber-border rounded-xl p-4 flex flex-col">
+                    <div class="flex items-center justify-between mb-2">
+                        <h3 class="text-xs font-bold text-slate-300 font-mono flex items-center gap-2">
+                            <i data-lucide="terminal" class="w-3.5 h-3.5 text-cyber-cyan"></i> RAW BLE STREAM TERMINAL
+                        </h3>
+                        <button onclick="clearTerminal()" class="text-[10px] font-mono text-slate-500 hover:text-slate-300">CLEAR</button>
+                    </div>
+                    <div id="rawTerminal" class="h-32 bg-slate-950 rounded-lg p-2.5 font-mono text-[11px] text-emerald-400 overflow-y-auto border border-slate-800/80 space-y-1">
+                        <div class="text-slate-600 italic">// Waiting for incoming BLE UART bytes from STM32...</div>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- SIDEBAR: THRESHOLD CONTROL & RAW SERIAL CONSOLE -->
+            <div class="flex flex-col gap-6">
+
+                <!-- THRESHOLD CONTROL PANEL -->
+                <div class="bg-cyber-card border border-cyber-border rounded-xl p-4">
+                    <div class="flex items-center justify-between mb-4 border-b border-cyber-border pb-3">
+                        <h2 class="text-sm font-bold text-slate-200 flex items-center gap-2 font-mono">
+                            <i data-lucide="sliders" class="w-4 h-4 text-cyber-amber"></i>
+                            THRESHOLD CONFIGURATION
+                        </h2>
+                        <span class="text-[10px] font-mono text-slate-400 bg-slate-900 px-2 py-0.5 rounded">BLE RX WRITE</span>
+                    </div>
+
+                    <form id="thresholdForm" onsubmit="applyThresholds(event)" class="flex flex-col gap-3">
+                        <!-- Temp Slider -->
+                        <div>
+                            <div class="flex justify-between text-xs font-mono mb-1">
+                                <label class="text-slate-400">Max Temp (°C)</label>
+                                <span id="input-val-temp" class="text-cyber-cyan">40</span>
+                            </div>
+                            <input type="range" id="input-thresh-temp" min="20" max="60" value="40" class="w-full accent-cyber-cyan h-1 bg-slate-800 rounded cursor-pointer" oninput="document.getElementById('input-val-temp').innerText=this.value">
+                        </div>
+
+                        <!-- Humidity Slider -->
+                        <div>
+                            <div class="flex justify-between text-xs font-mono mb-1">
+                                <label class="text-slate-400">Max Humidity (%)</label>
+                                <span id="input-val-humidity" class="text-cyber-cyan">70</span>
+                            </div>
+                            <input type="range" id="input-thresh-humidity" min="30" max="100" value="70" class="w-full accent-cyber-cyan h-1 bg-slate-800 rounded cursor-pointer" oninput="document.getElementById('input-val-humidity').innerText=this.value">
+                        </div>
+
+                        <!-- Pressure Slider -->
+                        <div>
+                            <div class="flex justify-between text-xs font-mono mb-1">
+                                <label class="text-slate-400">Max Pressure (hPa)</label>
+                                <span id="input-val-pressure" class="text-cyber-cyan">1030</span>
+                            </div>
+                            <input type="range" id="input-thresh-pressure" min="950" max="1100" value="1030" class="w-full accent-cyber-cyan h-1 bg-slate-800 rounded cursor-pointer" oninput="document.getElementById('input-val-pressure').innerText=this.value">
+                        </div>
+
+                        <!-- AQI Slider -->
+                        <div>
+                            <div class="flex justify-between text-xs font-mono mb-1">
+                                <label class="text-slate-400">Max AQI Index</label>
+                                <span id="input-val-aqi" class="text-cyber-cyan">150</span>
+                            </div>
+                            <input type="range" id="input-thresh-aqi" min="50" max="300" value="150" class="w-full accent-cyber-cyan h-1 bg-slate-800 rounded cursor-pointer" oninput="document.getElementById('input-val-aqi').innerText=this.value">
+                        </div>
+
+                        <!-- Light Slider -->
+                        <div>
+                            <div class="flex justify-between text-xs font-mono mb-1">
+                                <label class="text-slate-400">Max Light (Lux)</label>
+                                <span id="input-val-light" class="text-cyber-cyan">800</span>
+                            </div>
+                            <input type="range" id="input-thresh-light" min="100" max="2000" step="50" value="800" class="w-full accent-cyber-cyan h-1 bg-slate-800 rounded cursor-pointer" oninput="document.getElementById('input-val-light').innerText=this.value">
+                        </div>
+
+                        <!-- Sound Slider -->
+                        <div>
+                            <div class="flex justify-between text-xs font-mono mb-1">
+                                <label class="text-slate-400">Max Sound (dB)</label>
+                                <span id="input-val-sound" class="text-cyber-cyan">85</span>
+                            </div>
+                            <input type="range" id="input-thresh-sound" min="40" max="120" value="85" class="w-full accent-cyber-cyan h-1 bg-slate-800 rounded cursor-pointer" oninput="document.getElementById('input-val-sound').innerText=this.value">
+                        </div>
+
+                        <button type="submit" class="mt-2 w-full py-2 bg-cyber-amber/10 hover:bg-cyber-amber/20 border border-cyber-amber/50 text-cyber-amber text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-2">
+                            <i data-lucide="send" class="w-3.5 h-3.5"></i>
+                            <span>SEND CONFIG TO STM32</span>
+                        </button>
+                    </form>
+                </div>
+
+                <!-- RAW SERIAL COMMAND CONSOLE -->
+                <div class="bg-cyber-card border border-cyber-border rounded-xl p-4">
+                    <h2 class="text-sm font-bold text-slate-200 flex items-center gap-2 font-mono mb-3">
+                        <i data-lucide="command" class="w-4 h-4 text-cyber-cyan"></i>
+                        RAW STM32 COMMAND CONSOLE
+                    </h2>
+                    <div class="flex gap-2">
+                        <input type="text" id="rawCmdInput" placeholder="e.g. LED_ON or RESET" class="flex-1 bg-slate-950 border border-cyber-border px-3 py-1.5 rounded text-xs font-mono text-white focus:outline-none focus:border-cyber-cyan">
+                        <button onclick="sendRawCommand()" class="px-3 py-1.5 bg-cyber-cyan/20 border border-cyber-cyan/50 text-cyber-cyan text-xs font-bold rounded hover:bg-cyber-cyan/30">
+                            SEND
+                        </button>
+                    </div>
+                </div>
+
+                <!-- EVENT / ALERT LOG PANEL -->
+                <div class="bg-cyber-card border border-cyber-border rounded-xl p-4 flex-1 flex flex-col min-h-[200px]">
+                    <div class="flex items-center justify-between mb-3 border-b border-cyber-border pb-3">
+                        <h2 class="text-sm font-bold text-slate-200 flex items-center gap-2 font-mono">
+                            <i data-lucide="list-tree" class="w-4 h-4 text-slate-400"></i>
+                            SYSTEM EVENT LOG
+                        </h2>
+                        <button onclick="clearLogs()" class="text-[10px] text-slate-500 hover:text-slate-300 font-mono">CLEAR</button>
+                    </div>
+
+                    <div id="eventLogContainer" class="flex-1 overflow-y-auto max-h-52 space-y-2 pr-1 text-xs font-mono">
+                        <div class="text-slate-600 italic text-[11px] text-center py-4">No events logged.</div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+    </main>
+
+    <!-- FOOTER -->
+    <footer class="border-t border-cyber-border bg-cyber-card/50 py-3 mt-6">
+        <div class="max-w-7xl mx-auto px-4 flex flex-wrap justify-between items-center text-xs text-slate-500 font-mono gap-2">
+            <div>STM32 Hardware Telemetry Dashboard &copy; 2026</div>
+            <div class="flex gap-4">
+                <span>Protocol: Web Bluetooth API</span>
+                <span>Buffer: Line-Buffered Text</span>
+            </div>
+        </div>
+    </footer>
+
+    <!-- LOGIC SCRIPT -->
+    <script>
+        // ==========================================
+        // STATE & BLE CONFIGURATION
+        // ==========================================
+        let bleDevice = null;
+        let rxCharacteristic = null;
+        let totalPacketsReceived = 0;
+        let receiveBuffer = '';
+
+        const state = {
+            data: {
+                temp: null,
+                humidity: null,
+                pressure: null,
+                aqi: null,
+                light: null,
+                sound: null
+            },
+            thresholds: {
+                temp: 40,
+                humidity: 70,
+                pressure: 1030,
+                aqi: 150,
+                light: 800,
+                sound: 85
+            },
+            history: {
+                labels: [],
+                temp: [],
+                humidity: [],
+                pressure: [],
+                aqi: [],
+                light: [],
+                sound: []
+            }
+        };
+
+        const MAX_HISTORY_POINTS = 30;
+
+        // ==========================================
+        // INDIVIDUAL HIGH-SENSITIVITY CHARTS
+        // ==========================================
+        const charts = {};
+
+        function createSingleMetricChart(canvasId, label, dataArray, borderColor, bgColor) {
+            const ctx = document.getElementById(canvasId).getContext('2d');
+            return new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: state.history.labels,
+                    datasets: [{
+                        label: label,
+                        data: dataArray,
+                        borderColor: borderColor,
+                        backgroundColor: bgColor,
+                        borderWidth: 2,
+                        pointRadius: 2.5,
+                        pointHoverRadius: 5,
+                        pointBackgroundColor: borderColor,
+                        tension: 0.25,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: { duration: 120 },
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            backgroundColor: 'rgba(10, 14, 23, 0.95)',
+                            borderColor: '#1f293d',
+                            borderWidth: 1,
+                            titleFont: { family: 'JetBrains Mono', size: 10 },
+                            bodyFont: { family: 'JetBrains Mono', size: 11 }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            ticks: { color: '#64748b', font: { family: 'JetBrains Mono', size: 9 }, maxRotation: 0 },
+                            grid: { color: 'rgba(31, 41, 61, 0.4)' }
+                        },
+                        y: {
+                            beginAtZero: false,
+                            grace: '15%',
+                            ticks: {
+                                color: '#94a3b8',
+                                font: { family: 'JetBrains Mono', size: 9 },
+                                maxTicksLimit: 6
+                            },
+                            grid: { color: 'rgba(31, 41, 61, 0.5)' }
+                        }
+                    }
+                }
+            });
+        }
+
+        function initCharts() {
+            charts.temp = createSingleMetricChart('tempChart', 'Temp (°C)', state.history.temp, '#ff2a6d', 'rgba(255, 42, 109, 0.08)');
+            charts.humidity = createSingleMetricChart('humidityChart', 'Humidity (%)', state.history.humidity, '#00f0ff', 'rgba(0, 240, 255, 0.08)');
+            charts.aqi = createSingleMetricChart('aqiChart', 'AQI', state.history.aqi, '#ffb700', 'rgba(255, 183, 0, 0.08)');
+            charts.pressure = createSingleMetricChart('pressureChart', 'Pressure (hPa)', state.history.pressure, '#00ff66', 'rgba(0, 255, 102, 0.08)');
+            charts.light = createSingleMetricChart('lightChart', 'Light (Lux)', state.history.light, '#eab308', 'rgba(234, 179, 8, 0.08)');
+            charts.sound = createSingleMetricChart('soundChart', 'Sound (dB)', state.history.sound, '#c084fc', 'rgba(192, 132, 252, 0.08)');
+        }
+
+        // ==========================================
+        // WEB BLUETOOTH HANDLERS
+        // ==========================================
+        async function connectBLE() {
+            if (!navigator.bluetooth) {
+                alert("Web Bluetooth API is not supported by your browser. Please use Chrome, Edge, or Opera over HTTPS.");
+                return;
+            }
+
+            const serviceUuid = document.getElementById('cfg-service-uuid').value.trim().toLowerCase();
+            const txUuid = document.getElementById('cfg-tx-uuid').value.trim().toLowerCase();
+            const rxUuid = document.getElementById('cfg-rx-uuid').value.trim().toLowerCase();
+
+            try {
+                updateConnectionStatus('connecting');
+                logEvent('SYS', 'Requesting BLE device scan...');
+
+                bleDevice = await navigator.bluetooth.requestDevice({
+                    acceptAllDevices: true,
+                    optionalServices: [serviceUuid]
+                });
+
+                bleDevice.addEventListener('gattserverdisconnected', onDisconnected);
+
+                logEvent('BLE', `Connecting to GATT server on [${bleDevice.name || 'STM32 Device'}]...`);
+                const server = await bleDevice.gatt.connect();
+
+                logEvent('BLE', `Discovering primary service (${serviceUuid})...`);
+                const service = await server.getPrimaryService(serviceUuid);
+
+                logEvent('BLE', `Binding TX Notification characteristic (${txUuid})...`);
+                const txCharacteristic = await service.getCharacteristic(txUuid);
+                await txCharacteristic.startNotifications();
+                txCharacteristic.addEventListener('characteristicvaluechanged', handleBLEData);
+
+                try {
+                    rxCharacteristic = await service.getCharacteristic(rxUuid);
+                    logEvent('BLE', `RX Characteristic ready for commands (${rxUuid}).`);
+                } catch (rxErr) {
+                    logEvent('WARN', 'RX Characteristic not found. Threshold updates disabled.');
+                }
+
+                updateConnectionStatus('connected');
+                logEvent('BLE', `Successfully paired and receiving data stream.`);
+
+            } catch (error) {
+                console.error("BLE Connection Error:", error);
+                updateConnectionStatus('disconnected');
+                logEvent('ERROR', `Connection failed: ${error.message}`);
+            }
+        }
+
+        function disconnectBLE() {
+            if (bleDevice && bleDevice.gatt.connected) {
+                bleDevice.gatt.disconnect();
+            }
+            onDisconnected();
+        }
+
+        function onDisconnected() {
+            updateConnectionStatus('disconnected');
+            logEvent('BLE', 'STM32 Bluetooth device disconnected.');
+            rxCharacteristic = null;
+        }
+
+        function handleBLEData(event) {
+            const decoder = new TextDecoder('utf-8');
+            const chunk = decoder.decode(event.target.value);
+            receiveBuffer += chunk;
+
+            appendRawTerminal(chunk);
+
+            let lineIndex;
+            while ((lineIndex = receiveBuffer.indexOf('\n')) >= 0) {
+                const line = receiveBuffer.substring(0, lineIndex).trim();
+                receiveBuffer = receiveBuffer.substring(lineIndex + 1);
+
+                if (line.length > 0) {
+                    parseTelemetryLine(line);
+                }
+            }
+        }
+
+        function parseTelemetryLine(line) {
+            let parsed = null;
+
+            try {
+                const obj = JSON.parse(line);
+                parsed = {
+                    temp: obj.temp ?? obj.t ?? obj.temperature,
+                    humidity: obj.humidity ?? obj.hum ?? obj.h,
+                    pressure: obj.pressure ?? obj.press ?? obj.p,
+                    aqi: obj.aqi ?? obj.a ?? obj.air,
+                    light: obj.light ?? obj.lux ?? obj.l,
+                    sound: obj.sound ?? obj.db ?? obj.s
+                };
+            } catch (e) {
+                const parts = line.split(',');
+                if (parts.length >= 6) {
+                    parsed = {
+                        temp: parseFloat(parts[0]),
+                        humidity: parseFloat(parts[1]),
+                        pressure: parseFloat(parts[2]),
+                        aqi: parseFloat(parts[3]),
+                        light: parseFloat(parts[4]),
+                        sound: parseFloat(parts[5])
+                    };
+                }
+            }
+
+            if (parsed && !isNaN(parsed.temp)) {
+                totalPacketsReceived++;
+                document.getElementById('pktCountDisplay').innerText = `PACKETS: ${totalPacketsReceived}`;
+                document.getElementById('noDataBanner').classList.add('hidden');
+                processNewTelemetry(parsed);
+            } else {
+                logEvent('WARN', `Unrecognized telemetry payload line: "${line}"`);
+            }
+        }
+
+        async function applyThresholds(event) {
+            event.preventDefault();
+
+            state.thresholds.temp = parseFloat(document.getElementById('input-thresh-temp').value);
+            state.thresholds.humidity = parseFloat(document.getElementById('input-thresh-humidity').value);
+            state.thresholds.pressure = parseFloat(document.getElementById('input-thresh-pressure').value);
+            state.thresholds.aqi = parseFloat(document.getElementById('input-thresh-aqi').value);
+            state.thresholds.light = parseFloat(document.getElementById('input-thresh-light').value);
+            state.thresholds.sound = parseFloat(document.getElementById('input-thresh-sound').value);
+
+            document.getElementById('thresh-display-temp').innerText = state.thresholds.temp;
+            document.getElementById('thresh-display-humidity').innerText = state.thresholds.humidity;
+            document.getElementById('thresh-display-pressure').innerText = state.thresholds.pressure;
+            document.getElementById('thresh-display-aqi').innerText = state.thresholds.aqi;
+            document.getElementById('thresh-display-light').innerText = state.thresholds.light;
+            document.getElementById('thresh-display-sound').innerText = state.thresholds.sound;
+
+            const payload = JSON.stringify({ thresholds: state.thresholds });
+            sendBleString(payload);
+
+            if (state.data.temp !== null) {
+                evaluateThresholds();
+            }
+        }
+
+        async function sendRawCommand() {
+            const input = document.getElementById('rawCmdInput');
+            const cmd = input.value.trim();
+            if (!cmd) return;
+
+            await sendBleString(cmd);
+            input.value = '';
+        }
+
+        async function sendBleString(str) {
+            if (!rxCharacteristic) {
+                logEvent('WARN', 'Cannot send: RX Characteristic not available or disconnected.');
+                return;
+            }
+            try {
+                const data = new TextEncoder().encode(str + '\n');
+                for (let i = 0; i < data.length; i += 20) {
+                    await rxCharacteristic.writeValueWithoutResponse(data.slice(i, i + 20));
+                    await new Promise(r => setTimeout(r, 30));
+                }
+                logEvent('TX', `Sent to STM32: ${str}`);
+            } catch (err) {
+                logEvent('ERROR', `BLE TX failed: ${err.message}`);
+            }
+        }
+
+        // ==========================================
+        // DATA PROCESSING & UI UPDATES
+        // ==========================================
+        function processNewTelemetry(newData) {
+            state.data = { ...state.data, ...newData };
+
+            document.getElementById('val-temp').innerHTML = `${state.data.temp.toFixed(1)} <span class="text-xs font-normal text-slate-400">°C</span>`;
+            document.getElementById('val-humidity').innerHTML = `${state.data.humidity.toFixed(1)} <span class="text-xs font-normal text-slate-400">%</span>`;
+            document.getElementById('val-pressure').innerHTML = `${state.data.pressure.toFixed(1)} <span class="text-xs font-normal text-slate-400">hPa</span>`;
+            document.getElementById('val-aqi').innerHTML = `${Math.round(state.data.aqi)} <span class="text-xs font-normal text-slate-400">AQI</span>`;
+            document.getElementById('val-light').innerHTML = `${Math.round(state.data.light)} <span class="text-xs font-normal text-slate-400">Lux</span>`;
+            document.getElementById('val-sound').innerHTML = `${Math.round(state.data.sound)} <span class="text-xs font-normal text-slate-400">dB</span>`;
+
+            const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            state.history.labels.push(timeStr);
+            state.history.temp.push(state.data.temp);
+            state.history.humidity.push(state.data.humidity);
+            state.history.pressure.push(state.data.pressure);
+            state.history.aqi.push(state.data.aqi);
+            state.history.light.push(state.data.light);
+            state.history.sound.push(state.data.sound);
+
+            if (state.history.labels.length > MAX_HISTORY_POINTS) {
+                state.history.labels.shift();
+                state.history.temp.shift();
+                state.history.humidity.shift();
+                state.history.pressure.shift();
+                state.history.aqi.shift();
+                state.history.light.shift();
+                state.history.sound.shift();
+            }
+
+            // Update all 6 individual chart instances
+            Object.values(charts).forEach(chart => chart.update());
+
+            evaluateThresholds();
+        }
+
+        function evaluateThresholds() {
+            const metrics = ['temp', 'humidity', 'pressure', 'aqi', 'light', 'sound'];
+            let activeBreaches = [];
+
+            metrics.forEach(metric => {
+                const val = state.data[metric];
+                if (val === null) return;
+
+                const limit = state.thresholds[metric];
+                const cardEl = document.getElementById(`card-${metric}`);
+                const badgeEl = document.getElementById(`badge-${metric}`);
+
+                if (val > limit) {
+                    activeBreaches.push(`${metric.toUpperCase()} (${val} > ${limit})`);
+                    cardEl.classList.add('border-rose-500', 'bg-rose-950/20');
+                    cardEl.classList.remove('border-cyber-border');
+                    
+                    badgeEl.className = "px-1.5 py-0.5 rounded bg-rose-950 text-rose-400 border border-rose-800 animate-pulse";
+                    badgeEl.innerText = "WARNING";
+                } else {
+                    cardEl.classList.remove('border-rose-500', 'bg-rose-950/20');
+                    cardEl.classList.add('border-cyber-border');
+                    
+                    badgeEl.className = "px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-800";
+                    badgeEl.innerText = "NORMAL";
+                }
+            });
+
+            const banner = document.getElementById('globalAlertBanner');
+            const bannerText = document.getElementById('alertBannerText');
+            if (activeBreaches.length > 0) {
+                banner.classList.remove('hidden');
+                bannerText.innerText = `Breached limits: ${activeBreaches.join(', ')}`;
+                logEvent('WARN', `Threshold breach: ${activeBreaches.join('; ')}`);
+            } else {
+                banner.classList.add('hidden');
+            }
+        }
+
+        // ==========================================
+        // HELPERS & UI UTILITIES
+        // ==========================================
+        function updateConnectionStatus(status) {
+            const badge = document.getElementById('connectionBadge');
+            const dot = document.getElementById('statusDot');
+            const text = document.getElementById('statusText');
+            const connBtn = document.getElementById('connectBtn');
+            const disconnBtn = document.getElementById('disconnectBtn');
+
+            if (status === 'connected') {
+                badge.className = "flex items-center gap-2 px-3 py-1.5 rounded-lg border bg-emerald-950/40 border-emerald-800/50 text-emerald-400 text-xs font-mono";
+                dot.className = "w-2 h-2 rounded-full bg-emerald-500 animate-pulse";
+                text.innerText = bleDevice ? bleDevice.name || "CONNECTED" : "CONNECTED";
+                connBtn.classList.add('hidden');
+                disconnBtn.classList.remove('hidden');
+            } else if (status === 'connecting') {
+                badge.className = "flex items-center gap-2 px-3 py-1.5 rounded-lg border bg-amber-950/40 border-amber-800/50 text-amber-400 text-xs font-mono";
+                dot.className = "w-2 h-2 rounded-full bg-amber-500 animate-ping";
+                text.innerText = "CONNECTING...";
+            } else {
+                badge.className = "flex items-center gap-2 px-3 py-1.5 rounded-lg border bg-rose-950/40 border-rose-800/50 text-rose-400 text-xs font-mono";
+                dot.className = "w-2 h-2 rounded-full bg-rose-500";
+                text.innerText = "DISCONNECTED";
+                connBtn.classList.remove('hidden');
+                disconnBtn.classList.add('hidden');
+            }
+        }
+
+        function toggleUuidConfig() {
+            const panel = document.getElementById('uuidConfigPanel');
+            panel.classList.toggle('hidden');
+        }
+
+        function appendRawTerminal(chunk) {
+            const term = document.getElementById('rawTerminal');
+            if (term.children.length === 1 && term.children[0].innerText.includes('Waiting for incoming')) {
+                term.innerHTML = '';
+            }
+            const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3 });
+            const entry = document.createElement('div');
+            entry.innerHTML = `<span class="text-slate-500">[${timeStr}] RX &gt;</span> <span class="text-emerald-300">${escapeHtml(chunk)}</span>`;
+            term.appendChild(entry);
+            term.scrollTop = term.scrollHeight;
+        }
+
+        function clearTerminal() {
+            document.getElementById('rawTerminal').innerHTML = '<div class="text-slate-600 italic">// Terminal cleared. Waiting for bytes...</div>';
+        }
+
+        function logEvent(source, message) {
+            const container = document.getElementById('eventLogContainer');
+            if (container.children.length === 1 && container.children[0].innerText.includes('No events logged')) {
+                container.innerHTML = '';
+            }
+
+            const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            const logItem = document.createElement('div');
+            logItem.className = "p-1.5 rounded bg-slate-900/90 border border-slate-800/80 flex items-start gap-2 text-[11px]";
+
+            let colorClass = "text-slate-400";
+            if (source === 'WARN' || source === 'ERROR') colorClass = "text-rose-400";
+            if (source === 'TX' || source === 'BLE') colorClass = "text-cyber-cyan";
+
+            logItem.innerHTML = `
+                <span class="text-slate-600 font-mono text-[10px]">${timeStr}</span>
+                <span class="px-1 bg-slate-800 text-slate-300 rounded font-bold text-[9px]">${source}</span>
+                <span class="${colorClass} flex-1 break-all">${escapeHtml(message)}</span>
+            `;
+
+            container.prepend(logItem);
+        }
+
+        function clearLogs() {
+            document.getElementById('eventLogContainer').innerHTML = '<div class="text-slate-600 italic text-[11px] text-center py-4">No events logged.</div>';
+        }
+
+        function dismissBanner() {
+            document.getElementById('globalAlertBanner').classList.add('hidden');
+        }
+
+        function escapeHtml(str) {
+            return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        }
+
+        window.addEventListener('DOMContentLoaded', () => {
+            lucide.createIcons();
+            initCharts();
+        });
+    </script>
+</body>
+</html>
