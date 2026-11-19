@@ -85,7 +85,7 @@ volatile int aqi_value = 0;
 static uint32_t last_tick = 0;
 
 typedef struct { int temp, humidity, pressure, aqi, light, sound; } thresholds_t;
-thresholds_t thr = {40, 70, 1030, 150, 800, 85};   // same defaults as the dashboard
+thresholds_t thr = {40, 70, 1030, 150, 800, 85};
 
 extern char cmd_line[160];
 extern volatile uint8_t cmd_ready;
@@ -113,13 +113,13 @@ static void MX_DFSDM1_Init(void);
 static HAL_StatusTypeDef hts221_init(void)
 {
   uint8_t who = 0;
-  if (HAL_I2C_Mem_Read(&hi2c2, HTS221_ADDR, 0x0F, I2C_MEMADD_SIZE_8BIT, &who, 1, 100) != HAL_OK)
-    return HAL_ERROR;
+  if (HAL_I2C_Mem_Read(&hi2c2, HTS221_ADDR, 0x0F, I2C_MEMADD_SIZE_8BIT, &who, 1, 100) != HAL_OK) //Reads if the who adress register checks if its correct
+	  return HAL_ERROR;
   printf("HTS221 WHO_AM_I = 0x%02X (expect 0xBC)\r\n", who);
   if (who != 0xBC) return HAL_ERROR;
 
   uint8_t c[16];
-  if (HAL_I2C_Mem_Read(&hi2c2, HTS221_ADDR, 0x30 | 0x80, I2C_MEMADD_SIZE_8BIT, c, 16, 100) != HAL_OK)
+  if (HAL_I2C_Mem_Read(&hi2c2, HTS221_ADDR, 0x30 | 0x80, I2C_MEMADD_SIZE_8BIT, c, 16, 100) != HAL_OK)	//CALIB_0..F sensor get the data from calibration
     return HAL_ERROR;
 
   hts_cal.h0_rh = c[0] / 2.0f;
@@ -136,25 +136,25 @@ static HAL_StatusTypeDef hts221_init(void)
   hts_cal.t1_out = (int16_t)((c[15] << 8) | c[14]);
 
   uint8_t ctrl1 = 0x85;
-  return HAL_I2C_Mem_Write(&hi2c2, HTS221_ADDR, 0x20, I2C_MEMADD_SIZE_8BIT, &ctrl1, 1, 100);
+  return HAL_I2C_Mem_Write(&hi2c2, HTS221_ADDR, 0x20, I2C_MEMADD_SIZE_8BIT, &ctrl1, 1, 100); //CTRL_REG1 writes 0x85. Turns it on sets it up.
 }
 
 static HAL_StatusTypeDef hts221_read(void)
 {
   uint8_t d[4];
-  if (HAL_I2C_Mem_Read(&hi2c2, HTS221_ADDR, 0x28 | 0x80, I2C_MEMADD_SIZE_8BIT, d, 4, 100) != HAL_OK)
-    return HAL_ERROR;
+  if (HAL_I2C_Mem_Read(&hi2c2, HTS221_ADDR, 0x28 | 0x80, I2C_MEMADD_SIZE_8BIT, d, 4, 100) != HAL_OK)	//Read the sensor data 4 Bytes lower and upper byte from each sensor.
+    return HAL_ERROR;																					//put it into the buffer d[4]
 
-  int16_t h_raw = (int16_t)((d[1] << 8) | d[0]);
+  int16_t h_raw = (int16_t)((d[1] << 8) | d[0]);	//put together the bytes (upper_byte | lower_byte)
   int16_t t_raw = (int16_t)((d[3] << 8) | d[2]);
 
   float h = hts_cal.h0_rh + (float)(h_raw - hts_cal.h0_out) *
             (hts_cal.h1_rh - hts_cal.h0_rh) / (float)(hts_cal.h1_out - hts_cal.h0_out);
   if (h < 0.0f)   h = 0.0f;
-  if (h > 100.0f) h = 100.0f;
+  if (h > 100.0f) h = 100.0f;	//humidity calculation turn into real physical numbers.
 
   float t = hts_cal.t0_degc + (float)(t_raw - hts_cal.t0_out) *
-            (hts_cal.t1_degc - hts_cal.t0_degc) / (float)(hts_cal.t1_out - hts_cal.t0_out);
+            (hts_cal.t1_degc - hts_cal.t0_degc) / (float)(hts_cal.t1_out - hts_cal.t0_out); //same with temp
 
   humidity_rh = h;
   temp_hts_c  = t;
@@ -162,6 +162,8 @@ static HAL_StatusTypeDef hts221_read(void)
 }
 
 //-------------------------Bluetooth Telemetry--------------------------//
+
+
 extern void sendData(uint8_t* data_buffer, uint8_t Nb_bytes);
 extern volatile uint8_t connected;
 
@@ -170,7 +172,7 @@ static int to_x10(float v)
   return (int)(v * 10.0f + (v >= 0.0f ? 0.5f : -0.5f));
 }
 
-static void send_telemetry(int temp10, int hum10, int press10, int aqi, int light, int sound)
+static void send_telemetry(int temp10, int hum10, int press10, int aqi, int light, int sound) //send all the data via BLE to the website.
 {
   char buf[64];
   int len = snprintf(buf, sizeof(buf), "%s%d.%d,%s%d.%d,%s%d.%d,%d,%d,%d\n",
@@ -179,7 +181,7 @@ static void send_telemetry(int temp10, int hum10, int press10, int aqi, int ligh
       press10 < 0 ? "-" : "", abs(press10) / 10, abs(press10) % 10,
       aqi, light, sound);
 
-  if (len > 0 && connected) {
+  if (len > 0 && connected) {							//BLE can only send 20Bytes at a time so split the bytes into smaller one if its over 24Bytes
       for (int i = 0; i < len; i += 20) {
           int n = (len - i > 20) ? 20 : (len - i);
           sendData((uint8_t*)(buf + i), (uint8_t)n);
@@ -197,7 +199,7 @@ static int json_int(const char *s, const char *key, int fallback)
   return p ? atoi(p + strlen(pat)) : fallback;
 }
 
-static void handle_command(const char *line)
+static void handle_command(const char *line)				//get threshold and set it
 {
   if (line[0] == '{') {
     thr.temp     = json_int(line, "temp",     thr.temp);
@@ -330,6 +332,7 @@ int main(void)
   test_status = HAL_I2C_IsDeviceReady(&hi2c2, (0x5D << 1), 3, 100);
 
   //-------------------------I2C1 Scan (External/Grove)--------------------------//
+
   printf("Scanning I2C1 (External/Grove)...\r\n");
   for (uint16_t i = 1; i < 128; i++) {
       if (HAL_I2C_IsDeviceReady(&hi2c1, (i << 1), 1, 10) == HAL_OK) {
@@ -338,6 +341,7 @@ int main(void)
   }
 
   //-------------------------I2C2 Scan (Internal)--------------------------//
+
   printf("Scanning I2C2 (Internal)...\r\n");
   for (uint16_t i = 1; i < 128; i++) {
       if (HAL_I2C_IsDeviceReady(&hi2c2, (i << 1), 1, 10) == HAL_OK) {
