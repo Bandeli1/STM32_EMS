@@ -26,6 +26,8 @@
 #include <stdlib.h>
 #include <math.h>
 #include <string.h>
+#include "light_bar.h"
+#include "light_bar.c"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -56,7 +58,9 @@ I2C_HandleTypeDef hi2c2;
 
 SPI_HandleTypeDef hspi1;
 
+TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim6;
+DMA_HandleTypeDef hdma_tim2_ch1;
 
 UART_HandleTypeDef huart1;
 
@@ -89,11 +93,15 @@ thresholds_t thr = {40, 70, 1030, 150, 800, 85};
 
 extern char cmd_line[160];
 extern volatile uint8_t cmd_ready;
+
+
+float light_level = 0.0f;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
+static void MX_DMA_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_I2C2_Init(void);
@@ -101,6 +109,7 @@ static void MX_SPI1_Init(void);
 static void MX_TIM6_Init(void);
 static void MX_USART1_UART_Init(void);
 static void MX_DFSDM1_Init(void);
+static void MX_TIM2_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -317,6 +326,7 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();
   MX_ADC1_Init();
   MX_I2C1_Init();
   MX_I2C2_Init();
@@ -324,6 +334,7 @@ int main(void)
   MX_TIM6_Init();
   MX_USART1_UART_Init();
   MX_DFSDM1_Init();
+  MX_TIM2_Init();
   MX_BlueNRG_MS_Init();
   /* USER CODE BEGIN 2 */
   
@@ -372,6 +383,20 @@ int main(void)
   hm_ok = (hm3301_init() == HAL_OK);
   if (!hm_ok) printf("HM3301 init failed\r\n");
 
+  //-------------------LED STRIP------------------------------------------//
+
+ Led_Init(&htim2, TIM_CHANNEL_1);
+  if (Light_Init() != 0) {
+      printf("Light init failed\r\n");
+  }
+
+  printf("PCLK1=%lu ARR=%lu t0h=%u t1h=%u\r\n",
+         (unsigned long)HAL_RCC_GetPCLK1Freq(),
+         (unsigned long)__HAL_TIM_GET_AUTORELOAD(&htim2), t0h, t1h);
+  Led_ShowBar(1.0f);
+  HAL_Delay(50);
+  printf("led_busy=%d\r\n", (int)led_busy);
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -380,8 +405,7 @@ int main(void)
   {
     /* USER CODE END WHILE */
 
-    //-------------------------Bluetooth Process--------------------------//
-    MX_BlueNRG_MS_Process();
+  MX_BlueNRG_MS_Process();
     /* USER CODE BEGIN 3 */
 
     if (cmd_ready) { handle_command(cmd_line); cmd_ready = 0; }
@@ -443,7 +467,8 @@ int main(void)
       //-------------------------Bluetooth Telemetry--------------------------//
       printf("BLE connected = %d\r\n", (int)connected);
       if (connected) {
-         send_telemetry(to_x10(temp_hts_c), to_x10(humidity_rh), to_x10(pressure_hpa), aqi_value, 0, (int)sound_db);
+    	  send_telemetry(to_x10(temp_hts_c), to_x10(humidity_rh), to_x10(pressure_hpa),
+    	                 aqi_value, (int)(light_level * 1000), (int)sound_db);
       }
 
       if (cmd_ready) { handle_command(cmd_line); cmd_ready = 0; }
@@ -453,11 +478,24 @@ int main(void)
                   ((int)sound_db > thr.sound);
       printf("ALERT = %d\r\n", alert);
 
+
+      }
+
+
+   static uint32_t last_light = 0;
+    if (HAL_GetTick() - last_light >= 100) {
+        last_light = HAL_GetTick();
+        float amb;
+        if (Light_Read(&amb) == 0) {
+            light_level = Light_ToLevel(amb);
+            Led_ShowBar(light_level);
+        }
     }
   }
 
   /* USER CODE END 3 */
 }
+
 /**
   * @brief System Clock Configuration
   * @retval None
@@ -759,6 +797,65 @@ static void MX_SPI1_Init(void)
 }
 
 /**
+  * @brief TIM2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM2_Init(void)
+{
+
+  /* USER CODE BEGIN TIM2_Init 0 */
+
+  /* USER CODE END TIM2_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+  TIM_OC_InitTypeDef sConfigOC = {0};
+
+  /* USER CODE BEGIN TIM2_Init 1 */
+
+  /* USER CODE END TIM2_Init 1 */
+  htim2.Instance = TIM2;
+  htim2.Init.Prescaler = 0;
+  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim2.Init.Period = 99;
+  htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_Init(&htim2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.Pulse = 0;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM2_Init 2 */
+
+  /* USER CODE END TIM2_Init 2 */
+  HAL_TIM_MspPostInit(&htim2);
+
+}
+
+/**
   * @brief TIM6 Initialization Function
   * @param None
   * @retval None
@@ -832,6 +929,22 @@ static void MX_USART1_UART_Init(void)
 }
 
 /**
+  * Enable DMA controller clock
+  */
+static void MX_DMA_Init(void)
+{
+
+  /* DMA controller clock enable */
+  __HAL_RCC_DMA1_CLK_ENABLE();
+
+  /* DMA interrupt init */
+  /* DMA1_Channel5_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Channel5_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Channel5_IRQn);
+
+}
+
+/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -851,10 +964,13 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOD_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, DISP_CS_Pin|LED_DIN_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(DISP_CS_GPIO_Port, DISP_CS_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOD, GPIO_PIN_13, GPIO_PIN_SET);
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(VL53L0X_XSHUT_GPIO_Port, VL53L0X_XSHUT_Pin, GPIO_PIN_SET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOA, GPIO_PIN_8, GPIO_PIN_SET);
@@ -865,8 +981,8 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : DISP_CS_Pin PA8 LED_DIN_Pin */
-  GPIO_InitStruct.Pin = DISP_CS_Pin|GPIO_PIN_8|LED_DIN_Pin;
+  /*Configure GPIO pins : DISP_CS_Pin PA8 */
+  GPIO_InitStruct.Pin = DISP_CS_Pin|GPIO_PIN_8;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
@@ -878,6 +994,13 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : VL53L0X_XSHUT_Pin */
+  GPIO_InitStruct.Pin = VL53L0X_XSHUT_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(VL53L0X_XSHUT_GPIO_Port, &GPIO_InitStruct);
 
   /* EXTI interrupt init*/
   HAL_NVIC_SetPriority(EXTI9_5_IRQn, 0, 0);

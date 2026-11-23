@@ -55,6 +55,7 @@
 									<listOptionValue builtIn="false" value="../../Middlewares/ST/BlueNRG-MS/utils"/>
 									<listOptionValue builtIn="false" value="../../Middlewares/ST/BlueNRG-MS/includes"/>
 									<listOptionValue builtIn="false" value="../../Middlewares/ST/BlueNRG-MS/hci/hci_tl_patterns/Basic"/>
+									<listOptionValue builtIn="false" value="&quot;/home/elias/Dokumente/ETH/Sem5/PnS/Sensor and IoT/My Project/EM_System/Drivers/VL53L0X&quot;"/>
 								</option>
 								<inputType id="com.st.stm32cube.ide.mcu.gnu.managedbuild.tool.c.compiler.input.c.654974769" superClass="com.st.stm32cube.ide.mcu.gnu.managedbuild.tool.c.compiler.input.c"/>
 							</tool>
